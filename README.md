@@ -1,5 +1,7 @@
 # GTA Vice City FPV (macOS)
 
+<p><img src="revc-mac-fpv.gif" alt="reVC FPV" width=512></p>
+
 Fly an FPV drone through Vice City with your own radio, on a Mac. Press F7
 and Tommy launches a quad from the ground in front of him. It is simulated
 by [libfpv](https://github.com/hammerill/libfpv), which runs real Betaflight
