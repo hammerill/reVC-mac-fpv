@@ -28,8 +28,11 @@
 #include "log.h"
 #include "model.h"
 #include "paths.h"
+#include "pilot.h"
 #include "render.h"
+#include "standin.h"
 #include "vc.h"
+#include "view.h"
 
 #define DYLD_INTERPOSE(replacement, replacee)                                                                    \
     __attribute__((used)) static struct {                                                                        \
@@ -60,10 +63,19 @@ struct Original {
     void (*load_collision)(const float *);
     const vc::CVector *(*centre_of_world)(int);
     const vc::CVector *(*centre_no_sniper)();
+    vc::CVector (*find_coors)();
+    void (*render_background)(int16_t, int16_t, int16_t, int16_t, int16_t, int16_t, int16_t);
+    void (*render_horizon)();
+    void (*scan_world)();
+    void (*scan_sector_poly)(vc::RwV2d *, int, void (*)(void *));
+    void (*render_effects)();
+    void (*process_control)(vc::CEntity *);
+    bool (*ped_damage)(vc::CEntity *, vc::CEntity *, int, float, int, uint8_t);
 };
 Original g;
 
 vc::CVector g_centre;  // what the centre-of-world queries return in flight
+bool g_scanning = false;  // inside CRenderer::ScanWorld
 
 // CGame::Process: the world went one step; keys and the session follow.
 void game_process_hook() {
@@ -78,10 +90,58 @@ void camera_process_hook(void *camera) {
     drone::camera();
 }
 
-// RenderScene: the world is drawn, the drone model goes in with it.
+// RenderScene: the world is drawn, the drone model and the pilot's radio go in with it.
 void render_scene_hook() {
     g.render_scene();
     model::draw();
+    pilot::draw_radio();
+}
+
+// CRenderer::ScanWorld gathers what this frame draws: Tommy goes home for
+// the render passes first, and the sectors come from the whole frustum.
+void scan_world_hook() {
+    pilot::render_begin();
+    g_scanning = true;
+    g.scan_world();
+    g_scanning = false;
+}
+void scan_sector_poly_hook(vc::RwV2d *poly, int count, void (*scan)(void *)) {
+    vc::RwV2d outline[5];
+    int n = g_scanning && count == 3 ? view::sector_polygon(poly, scan == api.ScanSectorList_Priority, outline) : 0;
+    if (n) return g.scan_sector_poly(outline, n, scan);
+    g.scan_sector_poly(poly, count, scan);
+}
+
+// RenderEffects: the last of the world's passes; Tommy back to the drone.
+void render_effects_hook() {
+    g.render_effects();
+    pilot::render_end();
+}
+
+// The sky, for a camera that may be rolled or upside down.
+void render_background_hook(int16_t tr, int16_t tg, int16_t tb, int16_t br, int16_t bg, int16_t bb, int16_t a) {
+    if (!view::sky(tr, tg, tb, br, bg, bb, a)) g.render_background(tr, tg, tb, br, bg, bb, a);
+}
+void render_horizon_hook() {
+    if (!view::skip_horizon()) g.render_horizon();
+}
+
+// Tommy standing in at the drone: frozen (no gravity, no tasks) and unhurt
+// by whatever goes for him there (fists, bullets, cars, blasts, fire).
+void process_control_hook(vc::CEntity *ped) {
+    if (standin::standing_in(ped)) {
+        vc::move_speed(ped) = vc::turn_speed(ped) = {0, 0, 0};
+        return;
+    }
+    g.process_control(ped);
+}
+bool ped_damage_hook(vc::CEntity *ped, vc::CEntity *by, int weapon, float damage, int piece, uint8_t direction) {
+    if (standin::standing_in(ped)) {
+        static int reported = 0;
+        if (reported++ < 20) Log("standin: Tommy hit at the drone (weapon %d, %.1f damage), ignored", weapon, damage);
+        return false;
+    }
+    return g.ped_damage(ped, by, weapon, damage, piece, direction);
 }
 
 // The HUD, radar, radio station name and pickup text would cover the FPV
@@ -108,14 +168,27 @@ void garage_messages_hook() {
     if (!drone::hide_text()) g.garage_messages();
 }
 
-// Collision streams in around the drone, and stays where it was asked for
-// (normally around Tommy) as the second point, as for VC's own RC toys.
+// Collision streams in around the drone, and stays at Tommy's spot as the
+// second point, as for VC's own RC toys. (EnsureCollisionIsInMemory, right
+// after, loads at FindPlayerCoors: the drone too once he stands in. Before
+// that the drone is within a few metres of him.)
 void load_collision_hook(const float *pos) {
-    vc::CVector d;
+    vc::CVector d, home;
     if (!drone::drone_position(&d)) return g.load_collision(pos);
-    api.AddCollisionNeededAtPosn(pos);
+    if (drone::pilot_position(&home)) {
+        float second[2] = {home.x, home.y};
+        api.AddCollisionNeededAtPosn(second);
+    }
     float at[2] = {d.x, d.y};
     g.load_collision(at);
+}
+
+// Zones, streaming, pickups' respawns, police: "the player" is at the drone
+// while Tommy stands in (or the queries follow it from his vehicle).
+vc::CVector find_coors_hook() {
+    vc::CVector p;
+    if (standin::coors(&p)) return p;
+    return g.find_coors();
 }
 
 // Peds and traffic are created and removed around the drone.
@@ -149,13 +222,25 @@ void install_game_hooks() {
     HOOK(load_collision, CColStore_LoadCollision, load_collision_hook);
     HOOK(centre_of_world, FindPlayerCentreOfWorld, centre_of_world_hook);
     HOOK(centre_no_sniper, FindPlayerCentreOfWorld_NoSniperShift, centre_no_sniper_hook);
+    HOOK(find_coors, FindPlayerCoors, find_coors_hook);
+    HOOK(render_background, CClouds_RenderBackground, render_background_hook);
+    HOOK(render_horizon, CClouds_RenderHorizon, render_horizon_hook);
+    HOOK(scan_world, CRenderer_ScanWorld, scan_world_hook);
+    HOOK(scan_sector_poly, CRenderer_ScanSectorPoly, scan_sector_poly_hook);
+    HOOK(render_effects, RenderEffects, render_effects_hook);
+    HOOK(process_control, CPlayerPed_ProcessControl, process_control_hook);
+    HOOK(ped_damage, PedInflictDamage, ped_damage_hook);
 #undef HOOK
     // The loop and the camera are essential; the rest only hide or stream things.
+    // The stand-in needs all of its hooks, or Tommy could fall or get hurt at the drone.
     g_game_ok = g.game_process && g.camera_process;
-    Log("hooks: loop %d camera %d scene %d hud %d/%d/%d text %d/%d/%d/%d streaming %d/%d/%d", !!g.game_process,
-        !!g.camera_process, !!g.render_scene, !!g.hud_draw, !!g.radio_name, !!g.pickup_text, !!g.hud_after_fade,
-        !!g.messages_display, !!g.darkel_messages, !!g.garage_messages, !!g.load_collision, !!g.centre_of_world,
-        !!g.centre_no_sniper);
+    standin::set_available(g.find_coors && g.process_control && g.ped_damage && g.scan_world && g.render_effects);
+    Log("hooks: loop %d camera %d scene %d hud %d/%d/%d text %d/%d/%d/%d streaming %d/%d/%d/%d sky %d/%d scan %d/%d "
+        "effects %d standin %d/%d",
+        !!g.game_process, !!g.camera_process, !!g.render_scene, !!g.hud_draw, !!g.radio_name, !!g.pickup_text,
+        !!g.hud_after_fade, !!g.messages_display, !!g.darkel_messages, !!g.garage_messages, !!g.load_collision,
+        !!g.centre_of_world, !!g.centre_no_sniper, !!g.find_coors, !!g.render_background, !!g.render_horizon,
+        !!g.scan_world, !!g.scan_sector_poly, !!g.render_effects, !!g.process_control, !!g.ped_damage);
     if (!g_game_ok) Log("the FPV drone is off");
 }
 

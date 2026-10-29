@@ -54,10 +54,13 @@ add_library(revc_fpv SHARED
   src/log.cpp
   src/model.cpp
   src/paths.cpp
+  src/pilot.cpp
   src/plugin.cpp
   src/render.cpp
   src/sfx.cpp
+  src/standin.cpp
   src/vc.cpp
+  src/view.cpp
   src/world.cpp)
 if(REVC_FPV_KAMIKAZE)
   target_sources(revc_fpv PRIVATE src/kamikaze.cpp)

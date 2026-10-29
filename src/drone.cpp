@@ -11,8 +11,10 @@
 #include "input.h"
 #include "kamikaze.h"
 #include "log.h"
+#include "pilot.h"
 #include "render.h"
 #include "sfx.h"
+#include "standin.h"
 #include "world.h"
 
 namespace drone {
@@ -228,6 +230,8 @@ void stop() {
     fpv.fpv_overlay_set_action(kMoveHereAction, nullptr);
     audio::stop();  // before the drone: the audio thread reads libfpv's synth
     g_shot.on = false;
+    standin::end(true);  // no-op after move_here's end(false)
+    pilot::release();
     hold_player(false);
     if (g_drone) {
         fpv.fpv_world_set_raycast_callback(nullptr, nullptr);
@@ -368,6 +372,7 @@ void step() {
     if (frame.sim_time < g_first_sim_time + 0.05) return;
     g_frame = frame;
     g_have_frame = true;
+    standin::update(frame.position);
     update_home();
 #if defined(LIBFPV_KAMIKAZE)
     fpv_detonation d;
@@ -436,6 +441,11 @@ void apply_shot() {
     api.RwFrameUpdateObjects(frame);
     api.RwFrameOrthoNormalize(frame);
     api.RwCameraSetNearClipPlane(cam, g_shot.near_clip);
+    // CCamera::Process copied the game's own near plane (about 0.9 m) to
+    // CDraw before we got here. Sprites take their depth from CDraw's: with
+    // the old value, coronas and pickup glows came out nearer than they are
+    // and showed through walls.
+    *api.ms_fNearClipZ = g_shot.near_clip;
 }
 
 // While the overlay is open on foot, Tommy must not walk around as you type.
@@ -455,6 +465,8 @@ void inject_channels(const float *channels, uint32_t count) {
 
 bool active() { return g_drone != nullptr; }
 
+bool camera_on() { return g_drone && g_shot.on; }
+
 bool hide_hud() { return g_drone != nullptr; }
 
 bool hide_text() {
@@ -468,9 +480,8 @@ bool drone_position(vc::CVector *out) {
 }
 
 bool pilot_position(vc::CVector *out) {
-    vc::CEntity *tommy = api.FindPlayerPed();
-    if (!g_drone || !tommy) return false;
-    *out = vc::entity_position(tommy);
+    if (!g_drone || !api.FindPlayerPed()) return false;
+    *out = standin::home();  // his spot, also while he stands in at the drone
     return true;
 }
 
@@ -526,6 +537,7 @@ void move_here() {
     fpv_raycast_hit hit{};
     bool ground = world::raycast(nullptr, origin, down, 300.0f, &hit) != 0;
     float z = ground ? origin[2] - hit.distance : pos[2];
+    standin::end(false);  // he stays where the drone is, in its area (an interior, maybe)
     stop();
     vc::CEntity *tommy = api.FindPlayerPed();
     if (!tommy) return;

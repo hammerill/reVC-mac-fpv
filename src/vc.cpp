@@ -20,6 +20,14 @@ constexpr size_t PedHealth = 0x44C;
 constexpr size_t PedRotationCur = 0x46C;  // m_fRotationDest follows
 constexpr size_t PadDisablePlayerControls = 0xF0;
 constexpr size_t SceneCamera = 1;  // Scene.camera, in pointers
+constexpr size_t CameraLodMultiplier = 0xF8;
+constexpr size_t RsGlobalWidth = 0x8;  // height follows
+constexpr size_t EntityRwObject = 0x58;
+constexpr size_t EntityFlags = 0x60;  // m_type, m_status, flagsA..E: 48 bits
+constexpr size_t PhysicalMoveSpeed = 0x84;
+constexpr size_t PhysicalTurnSpeed = 0x90;
+constexpr size_t AnimBlendDelta = 0x2C;
+constexpr size_t AnimFlags = 0x3E;
 }  // namespace off
 
 struct OffsetCheck {
@@ -40,6 +48,18 @@ constexpr OffsetCheck kChecks[] = {
     {"_Z16RwCameraGetFramePKN2rw6CameraE", 0x0, 0xf9400400},  // ldr x0, [x0, #0x8]
     {"_ZN10CPlaceable10SetHeadingEf", 0x14, 0xbd403808},      // ldr s8, [x0, #0x38]: takes the CMatrix
     {"_ZN7CClouds16RenderBackgroundEsssssss", 0x58, 0x91008280},  // add x0, x20, #0x20: TheCamera.GetUp()
+    {"_ZN7CClouds16RenderBackgroundEsssssss", 0xb4, 0xbd400b41},  // ldr s1, [x26, #0x8]: SCREEN_WIDTH
+    {"_ZN9CRenderer9ScanWorldEv", 0x108, 0xbd40faa0},             // ldr s0, [x21, #0xf8]: LODDistMultiplier
+    {"_ZN9CRenderer21SetupEntityVisibilityEP7CEntity", 0x9c, 0xf9402e69},  // ldr x9, [x19, #0x58]: m_rwObject
+    {"_ZN9CRenderer21SetupEntityVisibilityEP7CEntity", 0xa0, 0x926e0108},  // and x8, x8, #0x40000: bIsVisible
+    {"_ZN6CWorld28ProcessLineOfSightSectorListER8CPtrListRK8CColLineR9CColPointRfRP7CEntitybbb", 0x1b8,
+     0x374001c8},                                                   // tbnz w8, #0x8: bUsesCollision
+    {"_ZN6CWorld7ProcessEv", 0x18c, 0xb75001e8},                    // tbnz x8, #0x2a: bOffscreen
+    {"_ZN9CPhysical14ApplyMoveForceEfff", 0x18, 0xfc484001},        // ldur d1, [x0, #0x84]: m_vecMoveSpeed
+    {"_ZN9CPhysical14ApplyTurnForceEffffff", 0x84, 0xfd404a61},     // ldr d1, [x19, #0x90]: m_vecTurnSpeed
+    {"_ZN21CAnimBlendAssociation11UpdateBlendEf", 0x10, 0x2d450402},  // ldp s2, s1, [x0, #0x28]: blendDelta
+    {"_ZN21CAnimBlendAssociation11UpdateBlendEf", 0x30, 0x3940fa68},  // ldrb w8, [x19, #0x3e]: flags
+    {"_ZN4CPed16InvestigateEventEv", 0x4c0, 0x528000e2},            // mov w2, #0x7: ANIM_STD_IDLE_CAM
 };
 
 template <typename T>
@@ -72,6 +92,13 @@ bool init(std::string &error) {
     R(CColStore_LoadCollision, "_ZN9CColStore13LoadCollisionERK9CVector2D");
     R(FindPlayerCentreOfWorld, "_Z23FindPlayerCentreOfWorldi");
     R(FindPlayerCentreOfWorld_NoSniperShift, "_Z37FindPlayerCentreOfWorld_NoSniperShiftv");
+    R(FindPlayerCoors, "_Z15FindPlayerCoorsv");
+    R(CClouds_RenderBackground, "_ZN7CClouds16RenderBackgroundEsssssss");
+    R(CClouds_RenderHorizon, "_ZN7CClouds13RenderHorizonEv");
+    R(CRenderer_ScanWorld, "_ZN9CRenderer9ScanWorldEv");
+    R(CRenderer_ScanSectorPoly, "_ZN9CRenderer14ScanSectorPolyEPN2rw3V2dEiPFvP8CPtrListE");
+    R(RenderEffects, "_Z13RenderEffectsv");
+    R(CPlayerPed_ProcessControl, "_ZN10CPlayerPed14ProcessControlEv");
 
     R(FindPlayerPed, "_Z13FindPlayerPedv");
     R(FindPlayerVehicle, "_Z17FindPlayerVehiclev");
@@ -98,8 +125,22 @@ bool init(std::string &error) {
     R(TeleportFns[1], "_ZN11CAutomobile8TeleportE7CVector");
     R(TeleportFns[2], "_ZN5CBike8TeleportE7CVector");
     R(TeleportFns[3], "_ZN5CBoat8TeleportE7CVector");
+    R(ScanSectorList_Priority, "_ZN9CRenderer23ScanSectorList_PriorityEP8CPtrList");
+    R(DrawAnyRect, "_ZN9CSprite2d11DrawAnyRectEffffffffRK5CRGBAS2_S2_S2_");
+    R(WorldAdd, "_ZN6CWorld3AddEP7CEntity");
+    R(WorldRemove, "_ZN6CWorld6RemoveEP7CEntity");
+    R(MatrixUpdateRW, "_ZN7CMatrix8UpdateRWEv");
+    R(UpdateRwFrame, "_ZN7CEntity13UpdateRwFrameEv");
+    R(UpdateRpHAnim, "_ZN7CEntity13UpdateRpHAnimEv");
+    R(BlendAnimation, "_ZN12CAnimManager14BlendAnimationEPN2rw5ClumpE12AssocGroupId11AnimationIdf");
+    R(GetAssociation, "_Z30RpAnimBlendClumpGetAssociationPN2rw5ClumpEj");
+    R(GetAnimHierarchyFromSkinClump, "_Z29GetAnimHierarchyFromSkinClumpPN2rw5ClumpE");
+    R(RpHAnimIDGetIndex, "_Z17RpHAnimIDGetIndexPN2rw14HAnimHierarchyEi");
+    R(RpHAnimHierarchyGetMatrixArray, "_Z30RpHAnimHierarchyGetMatrixArrayPN2rw14HAnimHierarchyE");
+    R(RemoveBuildingsNotInArea, "_ZN10CStreaming24RemoveBuildingsNotInAreaEi");
 
     R(RwCameraSetNearClipPlane, "_Z24RwCameraSetNearClipPlanePN2rw6CameraEf");
+    R(RwCameraGetFarClipPlane, "_Z23RwCameraGetFarClipPlanePKN2rw6CameraE");
     R(RwCameraGetFrame, "_Z16RwCameraGetFramePKN2rw6CameraE");
     R(RwCameraGetViewWindow, "_Z21RwCameraGetViewWindowPKN2rw6CameraE");
     R(RwFrameGetMatrix, "_Z16RwFrameGetMatrixPN2rw5FrameE");
@@ -123,6 +164,13 @@ bool init(std::string &error) {
     R(MusicManager, "MusicManager");
     R(pIgnoreEntity, "_ZN6CWorld13pIgnoreEntityE");
     R(ms_fFOV, "_ZN5CDraw7ms_fFOVE");
+    R(ms_fNearClipZ, "_ZN5CDraw13ms_fNearClipZE");
+    R(CloudsCameraRoll, "_ZN7CClouds13ms_cameraRollE");
+    R(CloudsHorizonTilt, "_ZN7CClouds14ms_HorizonTiltE");
+    R(CloudsColourTop, "_ZN7CClouds12ms_colourTopE");
+    R(CloudsColourBottom, "_ZN7CClouds15ms_colourBottomE");
+    R(currArea, "_ZN5CGame8currAreaE");
+    R(RsGlobal, "RsGlobal");
     R(UserPause, "_ZN6CTimer11m_UserPauseE");
     R(CodePause, "_ZN6CTimer11m_CodePauseE");
     R(TimeInMilliseconds, "_ZN6CTimer22m_snTimeInMillisecondsE");
@@ -162,11 +210,39 @@ CMatrix &camera_matrix() { return field<CMatrix>(api.TheCamera, off::CameraMatri
 
 void *scene_camera() { return api.Scene[off::SceneCamera]; }
 
+float lod_distance() { return 300.0f * field<float>(api.TheCamera, off::CameraLodMultiplier); }
+
+int screen_width() { return field<int32_t>(api.RsGlobal, off::RsGlobalWidth); }
+
+int screen_height() { return field<int32_t>(api.RsGlobal, off::RsGlobalWidth + 4); }
+
 CMatrix *entity_matrix(CEntity *e) { return &field<CMatrix>(e, off::EntityMatrix); }
 
 CVector entity_position(CEntity *e) { return entity_matrix(e)->pos; }
 
 EntityType type_of(CEntity *e) { return EntityType(field<uint8_t>(e, off::EntityType) & 7); }
+
+void *rw_object(CEntity *e) { return field<void *>(e, off::EntityRwObject); }
+
+// The flags are bytes (6 of them): touch only the byte that holds the bit.
+bool flag(CEntity *e, uint64_t bit) {
+    int i = __builtin_ctzll(bit);
+    return field<uint8_t>(e, off::EntityFlags + i / 8) & (1u << (i % 8));
+}
+
+void set_flag(CEntity *e, uint64_t bit, bool on) {
+    int i = __builtin_ctzll(bit);
+    uint8_t &b = field<uint8_t>(e, off::EntityFlags + i / 8);
+    b = on ? uint8_t(b | 1u << (i % 8)) : uint8_t(b & ~(1u << (i % 8)));
+}
+
+CVector &move_speed(CEntity *physical) { return field<CVector>(physical, off::PhysicalMoveSpeed); }
+
+CVector &turn_speed(CEntity *physical) { return field<CVector>(physical, off::PhysicalTurnSpeed); }
+
+float &anim_blend_delta(void *association) { return field<float>(association, off::AnimBlendDelta); }
+
+uint16_t &anim_flags(void *association) { return field<uint16_t>(association, off::AnimFlags); }
 
 float &ped_health(CEntity *ped) { return field<float>(ped, off::PedHealth); }
 

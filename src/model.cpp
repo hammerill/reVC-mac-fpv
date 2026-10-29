@@ -35,8 +35,16 @@ struct Vec3 {
     float x, y, z;
 };
 Vec3 operator+(Vec3 a, Vec3 b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
+Vec3 operator-(Vec3 a, Vec3 b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
 Vec3 operator*(Vec3 a, float k) { return {a.x * k, a.y * k, a.z * k}; }
 Vec3 vec(const float v[3]) { return {v[0], v[1], v[2]}; }
+float dot(Vec3 a, Vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+Vec3 cross(Vec3 a, Vec3 b) { return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x}; }
+float length(Vec3 a) { return std::sqrt(dot(a, a)); }
+Vec3 normalize(Vec3 a) {
+    float l = length(a);
+    return l > 1e-5f ? a * (1.0f / l) : Vec3{0, 0, 1};
+}
 
 std::vector<Vertex> g_vertices;
 std::vector<uint16_t> g_indices;
@@ -119,6 +127,42 @@ void build(const drone::ModelPose &p) {
     }
 }
 
+// About 17 x 11 x 5 cm: body, grips, orange side trim, two gimbals with
+// sticks, switches on the top edge, a screen and an antenna (as gtasa-fpv's).
+// False when the bones aren't in place yet.
+bool build_radio(Vec3 rh, Vec3 lh, Vec3 head) {
+    g_vertices.clear();
+    g_indices.clear();
+    Vec3 centre = (rh + lh) * 0.5f;
+    if (length(centre - head) > 1.5f) return false;
+    light_from_timecycle();
+    Vec3 X = normalize(rh - lh);  // his right
+    Vec3 N = head - centre;       // the face, towards his eyes
+    N = normalize(N - X * dot(N, X));
+    Vec3 Z = cross(N, X);  // up the radio, the antenna's way
+    float w = length(rh - lh) + 0.02f;
+    w = w < 0.15f ? 0.15f : w > 0.21f ? 0.21f : w;
+    Vec3 c = centre - N * 0.01f;
+    const uint32_t body = 0xff2b2b30, grip = 0xff141416, metal = 0xffa0a0a8, cap = 0xff1e1e20, ring = 0xff3c3c44,
+                   accent = 0xffd06818, screen = 0xff1a3050;
+    box(c, X * (w * 0.5f), N * 0.022f, Z * 0.05f, body);
+    for (float s : {-1.0f, 1.0f}) {
+        box(c + X * (s * (w * 0.5f - 0.022f)) - Z * 0.06f, X * 0.022f, N * 0.024f, Z * 0.03f, grip);  // grips
+        box(c + X * (s * (w * 0.5f - 0.004f)), X * 0.004f, N * 0.023f, Z * 0.035f, accent);          // side trim
+        Vec3 g = c + X * (s * w * 0.26f);
+        box(g + N * 0.0235f, X * 0.021f, N * 0.0015f, Z * 0.021f, ring);    // gimbal
+        box(g + N * 0.034f, X * 0.0035f, N * 0.011f, Z * 0.0035f, metal);  // stick
+        box(g + N * 0.047f, X * 0.0065f, N * 0.003f, Z * 0.0065f, cap);    // stick end
+        for (float k : {0.36f, 0.44f})                                       // switches on the top edge
+            box(c + X * (s * w * k) + Z * 0.058f, X * 0.003f, N * 0.003f, Z * 0.009f, metal);
+    }
+    box(c + N * 0.023f - Z * 0.028f, X * 0.018f, N * 0.0012f, Z * 0.012f, screen);
+    Vec3 a0 = c + X * (w * 0.18f) + Z * 0.05f;
+    Vec3 along = normalize(Z * 0.9f - N * 0.35f);
+    box(a0 + along * 0.06f, X * 0.005f, normalize(cross(along, X)) * 0.005f, along * 0.06f, grip);  // antenna
+    return true;
+}
+
 struct SavedState {
     int states[8] = {kStateTextureRaster, kStateZTest, kStateZWrite, kStateSrcBlend,
                      kStateDestBlend, kStateVertexAlpha, kStateFog, kStateCull};
@@ -133,13 +177,8 @@ struct SavedState {
 
 void set(int state, uintptr_t value) { api.RwRenderStateSet(state, reinterpret_cast<void *>(value)); }
 
-}  // namespace
-
-void draw() {
-    drone::ModelPose pose;
-    if (!fpvapi::loaded() || !drone::model_pose(&pose)) return;
-    build(pose);
-
+// Draws what build() or build_radio() made, in world space.
+void submit() {
     SavedState saved;
     saved.save();
     set(kStateTextureRaster, 0);
@@ -155,9 +194,25 @@ void draw() {
         api.RwIm3DEnd();
     }
     saved.restore();
+}
+
+}  // namespace
+
+void draw() {
+    drone::ModelPose pose;
+    if (!fpvapi::loaded() || !drone::model_pose(&pose)) return;
+    build(pose);
+    submit();
     static int traced = 0;
     if (traced++ < 2)
         Log("model: %zu triangles, light %.2f %.2f %.2f", g_indices.size() / 3, g_light[0], g_light[1], g_light[2]);
+}
+
+void draw_radio(const float right_hand[3], const float left_hand[3], const float head[3]) {
+    if (!build_radio(vec(right_hand), vec(left_hand), vec(head))) return;
+    submit();
+    static int traced = 0;
+    if (traced++ < 2) Log("model: radio, %zu triangles", g_indices.size() / 3);
 }
 
 }  // namespace model

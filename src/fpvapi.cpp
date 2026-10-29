@@ -2,6 +2,7 @@
 
 #include <dlfcn.h>
 
+#include <filesystem>
 #include <string>
 
 #include "log.h"
@@ -19,6 +20,33 @@ bool g_failed = false;
 void on_fpv_log(void *, fpv_log_level level, const char *message) {
     static const char *names[] = {"debug", "info", "warn", "error"};
     Log("libfpv %s: %s", names[level & 3], message);
+}
+
+// libfpv's shared folder, so the radio setup and the tune follow the pilot
+// between libfpv games. The first time, it takes over what earlier versions
+// kept in the bundle (unless another game already created it). Falls back to
+// the bundle folder when there is no home folder.
+std::string pick_data_dir() {
+    namespace fs = std::filesystem;
+    char shared[1024];
+    fpv_result r = fpv.fpv_shared_data_dir(shared, sizeof shared);
+    if (r != FPV_OK) {
+        Log("fpv_shared_data_dir: %s, using the bundle folder", fpv.fpv_result_string(r));
+        return paths::data_dir();
+    }
+    std::error_code ec;
+    fs::path old_dir = paths::data_dir();
+    if (!fs::exists(shared, ec) && fs::is_directory(old_dir, ec)) {
+        fs::create_directories(shared, ec);
+        for (const auto &entry : fs::directory_iterator(old_dir, ec)) {
+            if (entry.path().filename() == "shots") continue;  // the mod's screenshots stay
+            fs::copy(entry.path(), fs::path(shared) / entry.path().filename(),
+                     fs::copy_options::recursive | fs::copy_options::skip_existing, ec);
+            if (ec) Log("cannot copy %s: %s", entry.path().c_str(), ec.message().c_str());
+        }
+        Log("moved settings from %s to %s (the old folder is kept)", old_dir.c_str(), shared);
+    }
+    return shared;
 }
 
 }  // namespace
@@ -58,7 +86,7 @@ bool load() {
     FPV_KAMIKAZE_FUNCTIONS(FPV_FN)
 #undef FPV_FN
 
-    std::string data_dir = paths::data_dir();
+    std::string data_dir = pick_data_dir();
     fpv_global_config cfg;
     fpv.fpv_global_config_defaults(&cfg);
     cfg.data_dir = data_dir.c_str();

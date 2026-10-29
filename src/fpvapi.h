@@ -14,7 +14,8 @@ namespace fpvapi {
     X(fpv_texture_get) X(fpv_overlay_is_open) X(fpv_overlay_wants_input) X(fpv_overlay_set_display) \
     X(fpv_overlay_mouse_move) X(fpv_overlay_mouse_button) X(fpv_overlay_mouse_wheel)              \
     X(fpv_overlay_text) X(fpv_overlay_render) X(fpv_osd_draw_data) X(fpv_audio_configure)         \
-    X(fpv_audio_read) X(fpv_overlay_set_action) X(fpv_overlay_poll_action) X(fpv_gps_set_home)
+    X(fpv_audio_read) X(fpv_overlay_set_action) X(fpv_overlay_poll_action) X(fpv_gps_set_home)    \
+    X(fpv_shared_data_dir)
 
 #if defined(LIBFPV_KAMIKAZE)
 // Only in libfpv builds with -DLIBFPV_KAMIKAZE=ON; null with any other build.

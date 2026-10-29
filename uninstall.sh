@@ -3,8 +3,9 @@
 #
 #   ./uninstall.sh ["/path/to/GTA Vice City.app"]
 #
-# Your settings and radio setup (Contents/Resources/fpv-data) are kept; delete
-# that folder too to remove everything.
+# Your settings and radio setup are kept in ~/Library/Application Support/libfpv,
+# which other libfpv games share; delete it (and Contents/Resources/fpv-data, from
+# older versions) to remove everything.
 set -euo pipefail
 
 APP="${1:-${GTAVC_APP:-/Applications/GTA Vice City.app}}"
@@ -31,4 +32,4 @@ elif [ -f "$BACKUP" ]; then
     chmod +x "$LAUNCHER"
     echo "Restored the original launcher."
 fi
-echo "reVC-fpv is uninstalled. Settings are still in $APP/Contents/Resources/fpv-data"
+echo "reVC-fpv is uninstalled. Settings are still in ~/Library/Application Support/libfpv"

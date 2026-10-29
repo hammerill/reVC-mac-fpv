@@ -22,6 +22,9 @@ void observe_view_window(float tan_half_y);
 
 bool active();
 
+// The game renders through the drone's camera (or the blast's) this frame.
+bool camera_on();
+
 // The game's HUD is hidden in flight; with the pilot's OSD disable switch on
 // (or a lost video signal) every other game text goes too.
 bool hide_hud();

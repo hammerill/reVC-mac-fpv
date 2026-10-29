@@ -46,7 +46,7 @@ Trainer's macOS port (~/Projects/GrinchTrainer-III-VC-SA/macos).
   collision via CColStore::LoadCollision(FindPlayerCoors) → hooked: drone
   pos + AddCollisionNeededAtPosn(original) as 2nd point (VC's RC-toy trick);
   population via FindPlayerCentreOfWorld(_NoSniperShift) → drone pos.
-- Design choice vs gtasa: Tommy stays at his spot (controls disabled via our
+- (superseded 21:20, stand-in ported) Design choice vs gtasa: Tommy stays at his spot (controls disabled via our
   pad bit 0x8000) as the visible pilot; no "world treats drone as player"
   body stand-in (simpler, satisfies the "pilot stays visible" requirement).
 - FOV: CDraw::SetFOV takes 4:3 hfov; vertical = scale*tan(f/2), scale learned
@@ -62,7 +62,8 @@ ending under #if LIBFPV_KAMIKAZE), input.cpp (GLFW keys→libfpv, mod keys
 F7/C/R/Y, filtering what the game sees), render.cpp (GL3 lens/noise/static
 post-process, OSD+overlay via libfpv docs/renderers/fpv_render_gl3.h,
 shot.txt screenshots as PPM), model.cpp (procedural quad via engine Im3D
-after RenderScene), world.cpp (CWorld::ProcessLineOfSight raycast),
+after RenderScene), world.cpp (CWorld::ProcessLineOfSight raycast), view.cpp (sky + sector scan
+for any camera orientation), standin.cpp + pilot.cpp (as gtasa-fpv),
 effects.cpp, sfx.cpp, audio.cpp (CoreAudio AudioUnit), kamikaze.cpp
 (only with REVC_FPV_KAMIKAZE), autotest.cpp.
 Build: CMakeLists.txt links a GLFW stub (cmake/glfw_stub.c) with the game's
@@ -92,6 +93,73 @@ Data: Contents/Resources/fpv-data; log Contents/Resources/reVC-fpv.log.
 - Verified outdoors: FPV/chase/LOS, fisheye, OSD, model, game normal after.
 - Test aid: wait ~35 s after launch before keys, else the key sequence can
   walk into Quit Game (game exited once that way, no crash).
+
+## Fixes 2026-10-28 ~21:20 (user's first test report)
+- CORONAS / PICKUP GLOWS THROUGH WALLS: CCamera::Process copies the RW near
+  plane (~0.9) into CDraw::ms_fNearClipZ before our hook sets ours
+  (0.02-0.2). CSprite::CalcScreenZ maps depth with CDraw's near: sprites came
+  out nearer than they are (a corona 10 m away depth-tested as ~2 m). Fix:
+  apply_shot writes ms_fNearClipZ too.
+- SKY GREY / WRONG WHEN ROLLED OR INVERTED: CClouds::RenderBackground and
+  RenderHorizon draw screen-space bands above/below the horizon line with
+  roll = acos (only +-90 deg), and UseDarkBackground paints flat grey (50) when
+  forward.z < -0.9. In flight both are replaced (src/view.cpp): a 16x12 grid
+  of DrawAnyRect coloured by each screen point's view-ray elevation (same
+  colours/extents as the game: gradient over tan(elev) 0..0.5, fog to
+  128*ambient below over 48/448). ms_cameraRoll set with atan2 for the clouds.
+- GROUND / OBJECTS MISSING AT SOME ANGLES: CRenderer::ScanWorld picks sectors
+  from a 2D triangle (camera + two far corners, top or bottom pair by at.z):
+  a sliver when rolled, half the view when looking down. ScanSectorPoly is
+  detoured (only inside ScanWorld): the hull of the camera + the 4 frustum
+  corners at the same depth (LOD corners * 0.2 for the priority scan,
+  LOD_DISTANCE = 300 * TheCamera+0xF8). The rasterizer wants CCW (checked
+  against the game's own triangle orientation).
+- STREAMING "BUGGED FAR AWAY": LoadCollision(drone) + second point Tommy
+  keeps Tommy's boxes shrunk by 119 m, but CStreaming::Update then calls
+  EnsureCollisionIsInMemory(FindPlayerCoors()) with 110 m: with Tommy 110-119 m
+  from a box edge (and the drone outside it) the box was removed and
+  synchronously reloaded (LOADCOL + CTimer::Suspend) every frame. Depends on
+  where Tommy stands, hence "stopped after moving Tommy". Now FindPlayerCoors
+  is the drone once the stand-in is on.
+- STAND-IN + PILOT POSE (ported from gtasa-fpv standin.cpp / pilot.cpp, the
+  earlier "no stand-in" design choice is dropped): beyond 6 m (back under
+  3 m) Tommy goes with the drone hidden, collision-less, ProcessControl
+  skipped (speeds zeroed), InflictDamage ignored. So pickups (player ped
+  position within ~1.3 m), script door triggers (interiors), police, peds see
+  him there. Thresholds low because VC's doors are script locates and he often
+  launches next to one. Going home restores CGame::currArea (as
+  SET_AREA_VISIBLE + RemoveBuildingsNotInArea) if the drone went through a
+  door; Move Tommy here keeps the drone's area. Render swap: home + visible
+  from ScanWorld's start (ConstructRenderList's prologue has a bl) to the end
+  of RenderEffects. Pose: ANIM_STD_IDLE_CAM (7, partial+looped, ped.ifp),
+  blended every step; released with blendDelta -4 + DELETEFADEDOUT. Radio:
+  model.cpp, from the hand/finger/neck/head bones (VC ids 24/25/34/35/4/5).
+  Wanted level doesn't decay while he stands in (CWanted::Update is in the
+  frozen ProcessControl), as in gtasa-fpv.
+- New offsets (all kChecks): RsGlobal.width +8, TheCamera LOD mult +0xF8,
+  entity m_rwObject +0x58, flags bits from +0x60 (bUsesCollision 8, bIsVisible
+  18, bOffscreen 42), CPhysical move/turn speed +0x84/+0x90, anim association
+  blendDelta +0x2C, flags +0x3E.
+- KAMIKAZE SWITCH SETUP (libfpv overlay, not this mod): after the Radio tab's
+  wizard reaches Done it stays active until "Finish" (closing F8 keeps it), so
+  the Kamikaze tab only said "A radio is being set up... Go there". Fixed in
+  libfpv src/overlay/overlay.cpp: a finished, saved wizard of the other kind
+  is dismissed when the tab opens (both directions). Uncommitted in libfpv.
+- Verified: build, startup log (all 21 detours in, all offset checks pass).
+  NOT verified in flight yet (game window needs focus): sky, scan, pose,
+  radio placement, stand-in, interiors.
+
+## Shared data folder (2026-10-29)
+- libfpv's data_dir is now fpv_shared_data_dir() (~/Library/Application
+  Support/libfpv, LIBFPV_DATA_DIR overrides), so the radio setup and tune
+  follow the pilot between libfpv games. Fallback: the bundle's fpv-data.
+- Migration in fpvapi.cpp: if the shared folder doesn't exist yet, the old
+  Contents/Resources/fpv-data is copied into it (not shots/; old folder kept).
+  If another game created it first, its setup wins and nothing is copied.
+- The mod's own test triggers (autotest.txt, shot.txt, keys.txt) and shots/
+  stay in Contents/Resources/fpv-data (paths::data_dir()).
+- Verified with a harness (fake bundle, LIBFPV_DATA_DIR in scratch): copied
+  once, shots skipped, second run left the shared folder alone. Not run in game.
 
 ## Status (2026-10-28 ~13:15)
 - Save "Rub Out" loads (Load game > slot 1 > down enter = yes). Tommy in the

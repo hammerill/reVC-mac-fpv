@@ -26,7 +26,11 @@ install.
   a car or shoves a prop.
 - **The city follows the drone**: buildings, collision, traffic and
   pedestrians stream in wherever you fly, while Tommy stands at his spot as
-  the pilot, frozen until you come back.
+  the pilot, radio in hand.
+- **The world treats the drone as Tommy**: a few metres out, Tommy goes along
+  with it, unseen and unhurt, so the drone picks up pickups, flies through
+  doors into interiors, and draws the police. He still shows at his spot and
+  goes back there when the drone returns or the flight ends.
 - **Motor sound** from libfpv's synthesizer.
 - **Clean view**: the HUD, radar and radio station name are hidden while you
   fly.
@@ -79,8 +83,10 @@ hand from the Actions tab) with the latest libfpv.
 The installer puts the dylibs in `GTA Vice City.app/Contents/Frameworks/`
 and rewrites `Contents/MacOS/reVC` to load them through
 `DYLD_INSERT_LIBRARIES` (the original is kept as `reVC.fpv-backup`).
-Settings, radio mappings and Betaflight EEPROMs go in
-`Contents/Resources/fpv-data/`, and the log is
+Settings, radio mappings and Betaflight EEPROMs go in libfpv's shared
+folder, `~/Library/Application Support/libfpv/`, so they follow you to
+other libfpv games (`LIBFPV_DATA_DIR` moves it). The first run copies
+what older versions kept in `Contents/Resources/fpv-data/`. The log is
 `Contents/Resources/reVC-fpv.log`.
 
 ## Building

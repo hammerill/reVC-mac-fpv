@@ -64,8 +64,9 @@ Your settings are kept.
 
 Run `bash uninstall.sh` from the `reVC-fpv` folder (with the app's path if
 it's not in Applications). Your settings stay in
-`GTA Vice City.app/Contents/Resources/fpv-data`; delete that folder too to
-remove everything.
+`~/Library/Application Support/libfpv`, which other libfpv games share;
+delete it (and `GTA Vice City.app/Contents/Resources/fpv-data`, from older
+versions) to remove everything.
 
 ## Something wrong?
 
