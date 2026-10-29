@@ -7,14 +7,15 @@
 namespace fpvapi {
 
 #define FPV_FUNCTIONS(X)                                                                          \
-    X(fpv_global_config_defaults) X(fpv_global_init) X(fpv_last_error) X(fpv_result_string)       \
-    X(fpv_version_string) X(fpv_world_set_raycast_callback) X(fpv_drone_desc_defaults)            \
-    X(fpv_drone_create) X(fpv_drone_delete) X(fpv_drone_reset) X(fpv_drone_repair)                \
-    X(fpv_drone_tick) X(fpv_input_key) X(fpv_input_get_status) X(fpv_input_set_channels)          \
-    X(fpv_texture_get) X(fpv_overlay_is_open) X(fpv_overlay_wants_input) X(fpv_overlay_set_display) \
-    X(fpv_overlay_mouse_move) X(fpv_overlay_mouse_button) X(fpv_overlay_mouse_wheel)              \
-    X(fpv_overlay_text) X(fpv_overlay_render) X(fpv_osd_draw_data) X(fpv_audio_configure)         \
-    X(fpv_audio_read) X(fpv_overlay_set_action) X(fpv_overlay_poll_action) X(fpv_gps_set_home)    \
+    X(fpv_abi_version) X(fpv_global_config_defaults) X(fpv_global_init) X(fpv_last_error)         \
+    X(fpv_result_string) X(fpv_version_string) X(fpv_world_set_raycast_callback)                  \
+    X(fpv_drone_desc_defaults) X(fpv_drone_create) X(fpv_drone_delete) X(fpv_drone_reset)         \
+    X(fpv_drone_repair) X(fpv_drone_tick) X(fpv_input_key) X(fpv_input_get_status)                \
+    X(fpv_input_set_channels) X(fpv_texture_get) X(fpv_overlay_is_open)                           \
+    X(fpv_overlay_wants_input) X(fpv_overlay_set_display) X(fpv_overlay_mouse_move)               \
+    X(fpv_overlay_mouse_button) X(fpv_overlay_mouse_wheel) X(fpv_overlay_text)                    \
+    X(fpv_overlay_render) X(fpv_osd_draw_data) X(fpv_audio_configure) X(fpv_audio_read)           \
+    X(fpv_overlay_set_action) X(fpv_overlay_poll_action) X(fpv_gps_set_home)                      \
     X(fpv_shared_data_dir)
 
 #if defined(LIBFPV_KAMIKAZE)

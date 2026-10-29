@@ -1,0 +1,118 @@
+# Builds the plugin against libfpv on macOS arm64 and checks what can be
+# checked without the game: the plugin is arm64 and imports only the game's
+# GLFW and system libraries, and libfpv.dylib exports every function the
+# plugin loads, with the same ABI (tools/check_libfpv.cpp).
+# Pushes and PRs use the pinned LIBFPV_REF; the weekly run and a manual run
+# use libfpv main, to catch a libfpv change before it reaches a release.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      libfpv_ref:
+        description: libfpv commit, branch or tag (empty = main)
+        required: false
+
+env:
+  # Bump after checking the plugin against a newer libfpv.
+  LIBFPV_REF: e8f3a5aec2a36da9afefebfc78200904ca944c1b
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: reVC-fpv
+
+      - name: Pick the libfpv ref
+        id: ref
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_REF: ${{ inputs.libfpv_ref }}
+        run: |
+          case "$EVENT" in
+            schedule) ref=main ;;
+            workflow_dispatch) ref="${INPUT_REF:-main}" ;;
+            *) ref="$LIBFPV_REF" ;;
+          esac
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: hammerill/libfpv
+          ref: ${{ steps.ref.outputs.ref }}
+          path: libfpv
+          # Top level only: SimITL's own nested submodules use SSH URLs, and
+          # libfpv builds from its flattened copies in third_party/ instead.
+          submodules: true
+
+      - name: libfpv commit
+        id: lib
+        run: echo "sha=$(git -C libfpv rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # Betaflight and SDL take most of the run: keep the built dylib per
+      # libfpv commit and skip the build when it's cached.
+      - uses: actions/cache@v4
+        id: cache
+        with:
+          path: libfpv-dist
+          key: libfpv-macos14-arm64-${{ steps.lib.outputs.sha }}
+
+      - name: Build libfpv (arm64)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          cmake -S libfpv -B libfpv/build/mac \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLIBFPV_BUILD_TESTS=OFF -DLIBFPV_BUILD_EXAMPLES=OFF
+          cmake --build libfpv/build/mac -j"$(sysctl -n hw.ncpu)"
+          mkdir -p libfpv-dist
+          # libfpv.dylib is a symlink chain: keep the real file under the plain name.
+          cp -L libfpv/build/mac/libfpv.dylib libfpv-dist/libfpv.dylib
+
+      - name: Build the mod
+        run: |
+          cmake -S reVC-fpv -B reVC-fpv/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLIBFPV_DIR="$GITHUB_WORKSPACE/libfpv"
+          cmake --build reVC-fpv/build -j"$(sysctl -n hw.ncpu)" --target revc_fpv check_libfpv
+
+      - name: Check the plugin's binary
+        run: |
+          plugin=reVC-fpv/build/reVC-fpv.dylib
+          archs=$(lipo -archs "$plugin")
+          echo "archs: $archs"
+          [ "$archs" = arm64 ] || { echo "::error::plugin must be arm64 only"; exit 1; }
+          otool -L "$plugin"
+          # Skip the file name and the plugin's own install name; everything
+          # else must be the game's GLFW or part of macOS.
+          bad=$(otool -L "$plugin" | tail -n +2 | awk '{print $1}' \
+            | grep -v -e '^@loader_path/reVC-fpv\.dylib$' \
+                      -e '^@loader_path/\.\./Frameworks/libglfw\.3\.dylib$' \
+                      -e '^/usr/lib/' -e '^/System/Library/' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::unexpected imports: $bad"
+            exit 1
+          fi
+
+      - name: Check libfpv's exports
+        run: reVC-fpv/build/check_libfpv libfpv-dist/libfpv.dylib
+
+      - name: Summary
+        run: |
+          {
+            echo "- libfpv \`${{ steps.lib.outputs.sha }}\` (ref \`${{ steps.ref.outputs.ref }}\`, cached: ${{ steps.cache.outputs.cache-hit == 'true' }})"
+            echo "- $(reVC-fpv/build/check_libfpv libfpv-dist/libfpv.dylib)"
+          } >> "$GITHUB_STEP_SUMMARY"

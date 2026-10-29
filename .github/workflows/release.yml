@@ -42,7 +42,10 @@ jobs:
           cmake -S reVC-fpv -B reVC-fpv/build \
             -DCMAKE_BUILD_TYPE=Release \
             -DLIBFPV_DIR="$GITHUB_WORKSPACE/libfpv"
-          cmake --build reVC-fpv/build -j"$(sysctl -n hw.ncpu)"
+          cmake --build reVC-fpv/build -j"$(sysctl -n hw.ncpu)" --target revc_fpv check_libfpv
+
+      - name: Check libfpv's exports
+        run: reVC-fpv/build/check_libfpv libfpv/build/mac/libfpv.dylib
 
       - name: Package
         run: |

@@ -87,3 +87,8 @@ set_target_properties(revc_fpv PROPERTIES
   MACOSX_RPATH OFF
   BUILD_WITH_INSTALL_NAME_DIR ON
   INSTALL_NAME_DIR "@loader_path")
+
+# CI check (tools/check_libfpv.cpp): a libfpv.dylib has every function the
+# plugin loads. Not part of the default build.
+add_executable(check_libfpv EXCLUDE_FROM_ALL tools/check_libfpv.cpp)
+target_include_directories(check_libfpv PRIVATE src "${LIBFPV_DIR}/include")

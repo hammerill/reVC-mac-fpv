@@ -82,6 +82,10 @@ bool load() {
     FPV_FUNCTIONS(FPV_FN)
 #undef FPV_FN
     if (!ok) return false;
+    if (fpv.fpv_abi_version() != LIBFPV_ABI_VERSION) {
+        Log("libfpv.dylib has ABI %u, this plugin was built for %u", fpv.fpv_abi_version(), LIBFPV_ABI_VERSION);
+        return false;
+    }
 #define FPV_FN(name) fpv.name = reinterpret_cast<decltype(fpv.name)>(dlsym(lib, #name));
     FPV_KAMIKAZE_FUNCTIONS(FPV_FN)
 #undef FPV_FN
