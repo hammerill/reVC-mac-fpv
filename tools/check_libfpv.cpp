@@ -1,4 +1,4 @@
-// CI check without the game: loads a libfpv.dylib the way src/fpvapi.cpp
+// Release check without the game: loads a libfpv.dylib the way src/fpvapi.cpp
 // does and fails if any function the plugin needs is missing or the ABI
 // differs from the headers the plugin was built with.
 //   check_libfpv path/to/libfpv.dylib

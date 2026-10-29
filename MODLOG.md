@@ -10,8 +10,9 @@ standalone (nothing else to install), install style like the Hammerill
 Trainer's macOS port (~/Projects/GrinchTrainer-III-VC-SA/macos).
 - Kamikaze: supported in code, NOT mentioned in README/INSTALL, NOT in CI.
   Local builds use it (`-DREVC_FPV_KAMIKAZE=ON` + libfpv build/mac-kamikaze).
-- CI/CD: write .github/workflows/release.yml but do NOT trigger on push
-  (workflow_dispatch only for now). Never commit/push unless told.
+- CI/CD: .github/workflows/release.yml publishes a release on every push to
+  main (libfpv docs/PUBLISHING.md; user request 2026-10-29), plus by hand.
+  Never commit/push unless told.
 
 ## Environment
 - M1, macOS 26.6. Game exe `Contents/MacOS/macosx-arm64-librw_gl3_glfw-oal`

@@ -1,10 +1,13 @@
 # Builds the plugin and the latest libfpv for macOS arm64 and publishes
 # reVC-fpv.zip (install.sh, uninstall.sh, the dylibs, libfpv's license) as a
-# new GitHub release; docs/INSTALL.md becomes the release page.
-# Run by hand only for now (Actions > Release > Run workflow).
+# new GitHub release on every push to main; docs/INSTALL.md becomes the
+# release page, so releases/latest is the link to send players. Run it by
+# hand (Actions > Release > Run workflow) to pick up a new libfpv.
 name: Release
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:

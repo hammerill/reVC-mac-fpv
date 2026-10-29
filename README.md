@@ -69,12 +69,11 @@ both installers write a launcher that loads every installed plugin.
 ## Installing
 
 Players: see [docs/INSTALL.md](docs/INSTALL.md), which is also the text of
-every release. Releases are built by `.github/workflows/release.yml` (run by
-hand from the Actions tab) with the latest libfpv.
-`.github/workflows/ci.yml` builds every push and PR against a pinned libfpv
-(`LIBFPV_REF`) and, weekly, against libfpv main; it checks the plugin's
-imports and that libfpv exports every function the plugin loads
-(`tools/check_libfpv.cpp`). The game itself can't run in CI.
+every release. Every push to main publishes one, built by
+`.github/workflows/release.yml` with the latest libfpv; run it by hand from
+the Actions tab to pick up a new libfpv.
+Before publishing it checks that libfpv exports every function the plugin
+loads (`tools/check_libfpv.cpp`).
 
 | File | What it is |
 |---|---|
