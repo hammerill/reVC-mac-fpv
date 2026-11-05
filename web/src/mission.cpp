@@ -180,7 +180,10 @@ void follow_drone() {
     if (rpm > kPropMinRpm) {
         CPed *near[16];
         int n = alive_near(g_heli->GetPosition(), 3.0f, near, 16);
-        if (n && g_heli->DoDronePropCollision(kPropReach)) {
+        if (n) {
+            // BladeColSectorList (and so DoDronePropCollision) always returns
+            // false for peds, so the cuts are the peds it left dead.
+            g_heli->DoDronePropCollision(kPropReach);
             for (int i = 0; i < n; ++i)
                 if (near[i]->m_fHealth <= 0) {
                     ++g_cuts;

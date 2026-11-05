@@ -39,8 +39,9 @@
     overflow: hidden; text-overflow: ellipsis; }
   #toast.on { opacity: 1; }
   #result { position: fixed; top: 16px; right: 16px; z-index: 3; width: min(300px, calc(100% - 32px));
-    background: rgba(10, 8, 16, .88); border: 1px solid #3a3050; border-radius: 12px; padding: 14px 16px; display: none; }
-  #result.on { display: block; }
+    background: rgba(10, 8, 16, .88); border: 1px solid #3a3050; border-radius: 12px; padding: 14px 16px;
+    visibility: hidden; opacity: 0; transition: opacity .6s, visibility 0s .6s; }
+  #result.on { visibility: visible; opacity: 1; transition: opacity .6s; }
   #result h2 { margin: 0 0 8px; font-size: 18px; color: var(--pink); font-style: italic; }
   #result dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; font-size: 14px; }
   #result dt { color: var(--muted); }
@@ -336,12 +337,16 @@ addEventListener('keydown', (e) => {
 canvas.addEventListener('pointerdown', () => canvas.focus());
 
 // The mod reports the mission's progress (web/src/mission.cpp).
+let resultTimer = 0;
 window.revcFpv = {
   toast,
   result(html) {
     const r = document.getElementById('result');
+    clearTimeout(resultTimer);
+    if (!html) { r.classList.remove('on'); return; }
     r.innerHTML = html;
-    r.classList.toggle('on', !!html);
+    r.classList.add('on');
+    resultTimer = setTimeout(() => r.classList.remove('on'), 15000);
   },
 };
 </script>
