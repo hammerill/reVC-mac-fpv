@@ -897,17 +897,46 @@ index da911b7..92c26a9 100644
  	static uint8 m_nAmbientRed[NUMHOURS][NUMWEATHERS];
  	static uint8 m_nAmbientGreen[NUMHOURS][NUMWEATHERS];
  	static uint8 m_nAmbientBlue[NUMHOURS][NUMWEATHERS];
+diff --git a/src/rw/RwHelper.cpp b/src/rw/RwHelper.cpp
+index 69f5793..047e99e 100644
+--- a/src/rw/RwHelper.cpp
++++ b/src/rw/RwHelper.cpp
+@@ -5,6 +5,9 @@
+ #include "skeleton.h"
+ #include "Debug.h"
+ #include "MBlur.h"
++#if defined(__EMSCRIPTEN__) && defined(EXTENDED_COLOURFILTER)
++#include "postfx.h"
++#endif
+ #if !defined(FINAL) || defined(DEBUGMENU)
+ #include "rtcharse.h"
+ #endif
+@@ -581,6 +584,12 @@ CameraSize(RwCamera * camera, RwRect * rect,
+ 			raster->width = zRaster->width = rect->w;
+ 			raster->height = zRaster->height = rect->h;
+ #endif
++#if defined(__EMSCRIPTEN__) && defined(EXTENDED_COLOURFILTER)
++			// The colour filter's buffers fit the camera they were made for:
++			// remake them when the page's canvas changes size.
++			if(CPostFX::pFrontBuffer)
++				CPostFX::Open(camera);
++#endif
+ #ifdef FIX_BUGS
+ 			if(CMBlur::BlurOn){
+ 				CMBlur::MotionBlurClose();
 diff --git a/src/skel/glfw/glfw.cpp b/src/skel/glfw/glfw.cpp
-index f5195b8..b174afe 100644
+index f5195b8..9c74565 100644
 --- a/src/skel/glfw/glfw.cpp
 +++ b/src/skel/glfw/glfw.cpp
-@@ -49,9 +49,13 @@ long _dwOperatingSystemVersion;
+@@ -49,9 +49,15 @@ long _dwOperatingSystemVersion;
  #include "AnimViewer.h"
  #include "Font.h"
  #include "MemoryMgr.h"
 +#ifdef __EMSCRIPTEN__
 +#include <emscripten.h>
 +#include <emscripten/html5.h>
++// from <GLFW/emscripten_glfw3.h>, which needs C++17
++extern "C" int emscripten_glfw_make_canvas_resizable(GLFWwindow *window, char const *canvasResizeSelector, char const *handleSelector);
 +#endif
  
  // We found out that GLFW's keyboard input handling is still pretty delayed/not stable, so now we fetch input from X11 directly on Linux.
@@ -916,7 +945,7 @@ index f5195b8..b174afe 100644
  #define GET_KEYBOARD_INPUT_FROM_X11
  #endif
  
-@@ -260,7 +264,7 @@ double
+@@ -260,7 +266,7 @@ double
  psTimer(void)
  {
  	struct timespec start; 
@@ -925,7 +954,7 @@ index f5195b8..b174afe 100644
  	clock_gettime(CLOCK_MONOTONIC_RAW, &start);
  #elif defined(CLOCK_MONOTONIC_FAST)
  	clock_gettime(CLOCK_MONOTONIC_FAST, &start);
-@@ -481,7 +485,9 @@ psInitialize(void)
+@@ -481,7 +487,9 @@ psInitialize(void)
  	debug("Physical memory size %llu\n", _dwMemAvailPhys);
  	debug("Available physical memory %llu\n", size);
  #else
@@ -936,18 +965,19 @@ index f5195b8..b174afe 100644
   	struct sysinfo systemInfo;
  	sysinfo(&systemInfo);
  	_dwMemAvailPhys = systemInfo.freeram;
-@@ -753,6 +759,26 @@ psSelectDevice()
+@@ -753,6 +761,27 @@ psSelectDevice()
  			}
  		}
  	}
 +#elif defined(__EMSCRIPTEN__)
-+	// The page's canvas is the window: windowed, at its size in device pixels.
++	// The page's canvas is the window: windowed, at its size in CSS pixels
++	// (GLFW's window units). Its framebuffer is that times the page's render
++	// scale (web/shell.html), and psPostRWinit takes the game to that size.
 +	{
 +		double cssW = 0, cssH = 0;
 +		emscripten_get_element_css_size("#canvas", &cssW, &cssH);
-+		double ratio = emscripten_get_device_pixel_ratio();
-+		FrontEndMenuManager.m_nPrefsWidth = cssW > 0 ? (int)(cssW * ratio) : 1280;
-+		FrontEndMenuManager.m_nPrefsHeight = cssH > 0 ? (int)(cssH * ratio) : 720;
++		FrontEndMenuManager.m_nPrefsWidth = cssW > 0 ? (int)cssW : 1280;
++		FrontEndMenuManager.m_nPrefsHeight = cssH > 0 ? (int)cssH : 720;
 +		FrontEndMenuManager.m_nPrefsDepth = 32;
 +		FrontEndMenuManager.m_nPrefsWindowed = 1;
 +		FrontEndMenuManager.m_nSelectedScreenMode = 1;
@@ -963,7 +993,7 @@ index f5195b8..b174afe 100644
  #else
  	if ( !useDefault )
  	{
-@@ -803,7 +829,9 @@ psSelectDevice()
+@@ -803,7 +832,9 @@ psSelectDevice()
  	}
  #endif
  
@@ -973,7 +1003,47 @@ index f5195b8..b174afe 100644
  
  #ifdef IMPROVED_VIDEOMODE
  	if (FrontEndMenuManager.m_nPrefsWindowed)
-@@ -1790,6 +1818,278 @@ windowIconifyCB(GLFWwindow* window, int iconified) {
+@@ -996,8 +1027,22 @@ void psPostRWinit(void)
+ 	_InputInitialiseJoys();
+ 	_InputInitialiseMouse(false);
+ 
++#ifdef __EMSCRIPTEN__
++	// The canvas follows the browser window, and the game draws at the
++	// framebuffer's size (resizeCB on every change after this one).
++	emscripten_glfw_make_canvas_resizable(PSGLOBAL(window), "window", nil);
++	{
++		int fbw = 0, fbh = 0;
++		glfwGetFramebufferSize(PSGLOBAL(window), &fbw, &fbh);
++		if (fbw > 0 && fbh > 0) {
++			RsGlobal.maximumWidth = RsGlobal.width = fbw;
++			RsGlobal.maximumHeight = RsGlobal.height = fbh;
++		}
++	}
++#else
+ 	if(!(vm.flags & rwVIDEOMODEEXCLUSIVE))
+ 		glfwSetWindowSize(PSGLOBAL(window), RsGlobal.maximumWidth, RsGlobal.maximumHeight);
++#endif
+ 
+ 	// Make sure all keys are released
+ 	CPad::GetPad(0)->Clear(true);
+@@ -1768,8 +1813,16 @@ cursorCB(GLFWwindow* window, double xpos, double ypos) {
+ 	
+ 	int winw, winh;
+ 	glfwGetWindowSize(PSGLOBAL(window), &winw, &winh);
++#ifdef __EMSCRIPTEN__
++	// window units to framebuffer pixels, which differ by a fraction here
++	if (winw <= 0 || winh <= 0)
++		return;
++	FrontEndMenuManager.m_nMouseTempPosX = xpos * ((float)RsGlobal.maximumWidth / winw);
++	FrontEndMenuManager.m_nMouseTempPosY = ypos * ((float)RsGlobal.maximumHeight / winh);
++#else
+ 	FrontEndMenuManager.m_nMouseTempPosX = xpos * (RsGlobal.maximumWidth / winw);
+ 	FrontEndMenuManager.m_nMouseTempPosY = ypos * (RsGlobal.maximumHeight / winh);
++#endif
+ }
+ 
+ void
+@@ -1790,6 +1843,278 @@ windowIconifyCB(GLFWwindow* window, int iconified) {
  /*
   *****************************************************************************
   */
@@ -1252,7 +1322,7 @@ index f5195b8..b174afe 100644
  #ifdef _WIN32
  int PASCAL
  WinMain(HINSTANCE instance,
-@@ -1997,6 +2297,15 @@ main(int argc, char *argv[])
+@@ -1997,6 +2322,15 @@ main(int argc, char *argv[])
  	
  	initkeymap();
  
@@ -1268,7 +1338,7 @@ index f5195b8..b174afe 100644
  	while ( TRUE )
  	{
  		RwInitialised = TRUE;
-@@ -2042,228 +2351,7 @@ main(int argc, char *argv[])
+@@ -2042,228 +2376,7 @@ main(int argc, char *argv[])
  #ifdef GET_KEYBOARD_INPUT_FROM_X11
  			checkKeyPresses();
  #endif

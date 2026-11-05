@@ -15,6 +15,7 @@
 
 #include <GLFW/glfw3.h>
 
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -23,6 +24,7 @@
 
 #include "autotest.h"
 #include "drone.h"
+#include "fpvapi.h"
 #include "hook.h"
 #include "input.h"
 #include "log.h"
@@ -509,9 +511,40 @@ int Hook_glfwGetMouseButton(GLFWwindow *window, int button) {
 }
 DYLD_INTERPOSE(Hook_glfwGetMouseButton, glfwGetMouseButton)
 
+// A radio is the drone's, never the game's: libfpv reads it on its own, and
+// the game would take its sticks for Tommy's and its switches for buttons.
+// The game sees it centred and released, as all pads while the cursor is free.
+// A radio is the device libfpv flies with as one, or passes libfpv's own tests:
+// a radio's name, or four or more axes and no gamepad mapping.
+bool radio_joystick(int jid) {
+    const char *name = glfwGetJoystickName(jid);
+    if (!name) return false;
+    std::string n = name;
+    for (char &c : n) c = char(std::tolower((unsigned char)c));
+    static const char *const kWords[] = {
+        "edgetx", "opentx", "radiomaster", "jumper", "frsky", "taranis", "tbs", "tango", "mambo",
+        "crossfire", "elrs", "expresslrs", "boxer", "zorro", "tx16", "tx12", "pocket", "betafpv",
+        "literadio", "flysky", "fs-i6", "spektrum", "dongle", "simulator", "rc transmitter", "radioking",
+        "commando"};
+    for (const char *w : kWords)
+        if (n.find(w) != std::string::npos) return true;
+    if (fpvapi::loaded() && fpvapi::fpv.fpv_input_get_status) {
+        fpv_input_status st{};
+        st.struct_size = sizeof st;
+        if (fpvapi::fpv.fpv_input_get_status(&st) == FPV_OK && st.source == FPV_INPUT_SOURCE_RADIO &&
+            st.device_name[0] && std::strstr(name, st.device_name))
+            return true;
+    }
+    int axes = 0;
+    glfwGetJoystickAxes(jid, &axes);
+    return !glfwJoystickIsGamepad(jid) && axes >= 4;
+}
+
+bool hide_joystick(int jid) { return g_cursor_free || radio_joystick(jid); }
+
 int Hook_glfwGetGamepadState(int jid, GLFWgamepadstate *state) {
     int result = glfwGetGamepadState(jid, state);
-    if (result && g_cursor_free) {
+    if (result && hide_joystick(jid)) {
         std::memset(state, 0, sizeof *state);
         state->axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER] = -1.0f;  // triggers rest at -1
         state->axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] = -1.0f;
@@ -523,7 +556,7 @@ DYLD_INTERPOSE(Hook_glfwGetGamepadState, glfwGetGamepadState)
 const unsigned char *Hook_glfwGetJoystickButtons(int jid, int *count) {
     static unsigned char released[128];
     const unsigned char *buttons = glfwGetJoystickButtons(jid, count);
-    if (buttons && g_cursor_free) {
+    if (buttons && hide_joystick(jid)) {
         if (*count > int(sizeof released)) *count = sizeof released;
         return released;
     }
@@ -534,7 +567,7 @@ DYLD_INTERPOSE(Hook_glfwGetJoystickButtons, glfwGetJoystickButtons)
 const float *Hook_glfwGetJoystickAxes(int jid, int *count) {
     static float centred[32];
     const float *axes = glfwGetJoystickAxes(jid, count);
-    if (axes && g_cursor_free) {
+    if (axes && hide_joystick(jid)) {
         if (*count > int(sizeof centred / sizeof centred[0])) *count = sizeof centred / sizeof centred[0];
         return centred;
     }

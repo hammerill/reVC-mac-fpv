@@ -43,6 +43,7 @@
 #include "World.h"
 
 #include "drone.h"
+#include "effects.h"
 #include "input.h"
 #include "log.h"
 #include "world.h"
@@ -113,6 +114,7 @@ void unbind(const char *why, bool heli_alive) {
     world::ignore(nullptr);
     if (heli_alive && g_heli->GetStatus() != STATUS_WRECKED) DMAudio.SetEntityStatus(g_heli->m_audioEntityId, TRUE);
     g_heli = nullptr;
+    effects::set_prop_strikes(true);
 }
 
 void bind(CVehicle *heli) {
@@ -128,6 +130,7 @@ void bind(CVehicle *heli) {
         return;
     }
     g_heli = heli;
+    effects::set_prop_strikes(false);  // the helicopter's rotor cuts the peds (follow_drone), and counts them
     heli->bIsFrozen = true;      // our pose only: no flying model, no physics
     heli->bInfiniteMass = true;
     DMAudio.SetEntityStatus(heli->m_audioEntityId, FALSE);  // the drone's motors are the sound
@@ -213,6 +216,7 @@ void update_binding() {
         }
         if (!drone::rc_active()) {
             g_heli = nullptr;
+            effects::set_prop_strikes(true);
             world::ignore(nullptr);
             return;
         }

@@ -20,11 +20,17 @@ inline uint32_t handle_of(uint32_t object_id) { return object_id & 0x0fffffffu; 
 void ignore(vc::CEntity *entity);
 
 // fpv_raycast_fn. Game thread only (libfpv calls it inside fpv_drone_tick).
+// Peds aren't solid to the drone: it flies through them, and its props cut
+// them (effects.cpp, through sweep_peds).
 int raycast(void *user, const float origin[3], const float dir[3], float max_distance, fpv_raycast_hit *hit);
 
 // The same probe, also returning the entity that was hit (may be null) and
-// its surface type.
+// its surface type. Peds count unless `peds` is false.
 bool probe(const float origin[3], const float dir[3], float max_distance, fpv_raycast_hit *hit,
-           vc::CEntity **entity = nullptr, uint8_t *surface = nullptr);
+           vc::CEntity **entity = nullptr, uint8_t *surface = nullptr, bool peds = true);
+
+// The first ped (not the ignored one) that a ball of `radius` moving from
+// `from` to `to` touches, or null. Game thread.
+vc::CEntity *sweep_peds(const float from[3], const float to[3], float radius);
 
 }  // namespace world

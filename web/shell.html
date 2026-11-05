@@ -46,6 +46,21 @@
   #result dt { color: var(--muted); }
   #result dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
   #result p { margin: 10px 0 0; color: var(--muted); font-size: 13px; }
+  #gfx { position: fixed; left: 12px; bottom: 12px; z-index: 3; display: none; flex-direction: column-reverse;
+    align-items: flex-start; gap: 8px; }
+  body.playing #gfx { display: flex; }
+  #gfx-btn { width: 34px; height: 34px; border-radius: 50%; border: 1px solid #3a3050; background: rgba(10, 8, 16, .7);
+    color: var(--ink); font-size: 18px; line-height: 1; cursor: pointer; opacity: .35; transition: opacity .2s; }
+  #gfx-btn:hover, #gfx.open #gfx-btn { opacity: 1; }
+  #gfx-panel { display: none; background: rgba(10, 8, 16, .92); border: 1px solid #3a3050; border-radius: 12px;
+    padding: 12px 14px; width: min(280px, calc(100vw - 32px)); box-sizing: border-box; }
+  #gfx.open #gfx-panel { display: block; }
+  #gfx-panel h2 { margin: 0 0 8px; font-size: 14px; color: var(--muted); font-weight: 600; }
+  #gfx-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  #gfx-opts button { font: inherit; font-size: 13px; color: var(--ink); background: #1b1626; border: 1px solid #3a3050;
+    border-radius: 6px; padding: 6px 8px; cursor: pointer; }
+  #gfx-opts button[aria-pressed="true"] { border-color: var(--cyan); color: var(--cyan); }
+  #gfx-now { margin: 8px 0 0; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
@@ -68,6 +83,14 @@
 </div>
 <div id="toast"></div>
 <div id="result"></div>
+<div id="gfx">
+  <button id="gfx-btn" type="button" title="Resolution" aria-label="Resolution" aria-expanded="false">&#9881;</button>
+  <div id="gfx-panel">
+    <h2>Resolution</h2>
+    <div id="gfx-opts"></div>
+    <p id="gfx-now"></p>
+  </div>
+</div>
 
 <script>
 'use strict';
@@ -91,6 +114,90 @@ function toast(text, ms) {
 }
 const mb = (n) => (n / 1048576).toFixed(0) + ' MB';
 
+// Render resolution. GLFW sizes the canvas in CSS pixels and its framebuffer
+// at that times devicePixelRatio, so the page answers devicePixelRatio with
+// its own render scale: the screen's real one, capped at a pixel count (the
+// area of a 16:9 picture of the chosen height, so any aspect ratio works).
+// The browser stretches the canvas over the window.
+const RES = [
+  {id: 'auto', label: 'Auto (up to 1080p)', height: 1080},
+  {id: '720', label: '720p', height: 720},
+  {id: '1440', label: '1440p', height: 1440},
+  {id: 'native', label: 'Native', height: 0},
+];
+let resId = 'auto';
+try { resId = localStorage.getItem('revc-fpv-res') || 'auto'; } catch (e) { /* no storage */ }
+if (!RES.some((r) => r.id === resId)) resId = 'auto';
+const dprDesc = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio') ||
+  Object.getOwnPropertyDescriptor(Window.prototype, 'devicePixelRatio');
+const realDpr = () => (dprDesc && dprDesc.get ? dprDesc.get.call(window) : 1) || 1;
+function renderScale() {
+  const real = realDpr();
+  const res = RES.find((r) => r.id === resId);
+  const area = innerWidth * innerHeight;
+  if (!res.height || !area) return real;
+  const cap = Math.sqrt(res.height * res.height * 16 / 9 / area);
+  return Math.max(0.25, Math.min(real, cap));
+}
+try {
+  Object.defineProperty(window, 'devicePixelRatio', {get: renderScale, configurable: true});
+} catch (e) { console.warn('render scale: cannot override devicePixelRatio', e); }
+// GLFW rereads the scale when its "(resolution: Ndppx)" media query changes;
+// the page hands it a query it can fire itself, whenever the scale may change.
+const scaleListeners = new Set();
+const realMatchMedia = window.matchMedia.bind(window);
+window.matchMedia = (q) => {
+  if (!/^\(resolution:/.test(q)) return realMatchMedia(q);
+  return {
+    media: q, matches: true, onchange: null,
+    addEventListener: (type, fn) => { if (type === 'change') scaleListeners.add(fn); },
+    removeEventListener: (type, fn) => { scaleListeners.delete(fn); },
+    addListener: (fn) => scaleListeners.add(fn), removeListener: (fn) => scaleListeners.delete(fn),
+  };
+};
+function rescale() {
+  for (const fn of [...scaleListeners]) { try { fn({matches: true}); } catch (e) { console.warn(e); } }
+  setTimeout(showRes, 0);
+}
+let resizeTimer = 0;
+addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(rescale, 150); });
+(function watchRealDpr() {  // the browser's zoom, or the window moved to another screen
+  const mq = realMatchMedia(`(resolution: ${realDpr()}dppx)`);
+  mq.addEventListener('change', () => { watchRealDpr(); rescale(); }, {once: true});
+})();
+function showRes() {
+  for (const b of document.querySelectorAll('#gfx-opts button')) b.setAttribute('aria-pressed', b.dataset.id === resId);
+  document.getElementById('gfx-now').textContent = canvas.width && canvas.height
+    ? `Drawing ${canvas.width} \u00d7 ${canvas.height}` +
+      ` on a ${Math.round(innerWidth * realDpr())} \u00d7 ${Math.round(innerHeight * realDpr())} window`
+    : '';
+}
+{
+  const gfx = document.getElementById('gfx'), btn = document.getElementById('gfx-btn');
+  const opts = document.getElementById('gfx-opts');
+  for (const r of RES) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.id = r.id;
+    b.textContent = r.label;
+    b.addEventListener('click', () => {
+      resId = r.id;
+      try { localStorage.setItem('revc-fpv-res', resId); } catch (e) { /* no storage */ }
+      rescale();
+      canvas.focus();  // the game's keys stay with the game
+    });
+    opts.appendChild(b);
+  }
+  btn.addEventListener('click', () => {
+    const open = gfx.classList.toggle('open');
+    btn.setAttribute('aria-expanded', open);
+    if (open) showRes();
+    canvas.focus();
+  });
+  // Clicks on the panel stay off the game.
+  for (const t of ['mousedown', 'mouseup', 'click', 'pointerdown']) gfx.addEventListener(t, (e) => e.stopPropagation());
+}
+
 var Module = {
   canvas,
   libfpvDataDir: '/libfpv',
@@ -112,6 +219,7 @@ var Module = {
       Module.FS.chdir('/game');
       Module.callMain([]);
       document.getElementById('boot').classList.add('gone');
+      document.body.classList.add('playing');
       canvas.focus();
       if (!audioUnlocked) toast('Click or press a key for sound');
     }, 50);
