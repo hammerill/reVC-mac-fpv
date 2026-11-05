@@ -17,6 +17,10 @@ endif()
 get_filename_component(MOD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 set(RE3_DIR "${MOD_DIR}/build/re3" CACHE PATH "reVC source with web/re3-web.patch applied (web/setup.sh)")
 set(LIBFPV_DIR "$ENV{HOME}/Projects/libfpv" CACHE PATH "libfpv source checkout")
+# The Betaflight setup every drone starts from (fpv_set_default_betaflight_diff),
+# as libfpv's own web build does; empty for libfpv's defaults.
+set(REVC_WEB_BF_CONFIG "${LIBFPV_DIR}/assets/configs/hammerill.diff.txt" CACHE FILEPATH
+  "Betaflight diff all file the drone's configuration starts from")
 if(NOT EXISTS "${RE3_DIR}/src/core/config.h")
   message(FATAL_ERROR "No reVC source in ${RE3_DIR}: run web/setup.sh first.")
 endif()
@@ -87,6 +91,15 @@ set_target_properties(revc PROPERTIES CXX_STANDARD 11 OUTPUT_NAME index SUFFIX "
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/dist"
   LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/shell.html")
 target_link_libraries(revc PRIVATE librw revc_fpv_mod libfpv::fpv)
+if(REVC_WEB_BF_CONFIG)
+  get_filename_component(_bf_config "${REVC_WEB_BF_CONFIG}" ABSOLUTE)
+  if(NOT EXISTS "${_bf_config}")
+    message(FATAL_ERROR "REVC_WEB_BF_CONFIG: ${_bf_config} not found")
+  endif()
+  target_link_options(revc PRIVATE "SHELL:--embed-file ${_bf_config}@/bf_config.txt")
+  target_compile_definitions(revc_fpv_mod PRIVATE REVC_WEB_BF_CONFIG="/bf_config.txt")
+  set_property(TARGET revc APPEND PROPERTY LINK_DEPENDS "${_bf_config}")
+endif()
 target_link_options(revc PRIVATE
   --use-port=contrib.glfw3 -sUSE_MPG123=1 -lopenal -lidbfs.js
   -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sGL_ENABLE_GET_PROC_ADDRESS=1

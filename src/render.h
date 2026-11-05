@@ -9,6 +9,11 @@ namespace render {
 // win_*: window points (the overlay and the mouse use those).
 void frame(int fb_w, int fb_h, int win_w, int win_h);
 
+// The lens, noise and static over the game's 3D frame only, called right
+// before it draws its HUD, text and menus (where the host has that hook: the
+// web build). Once it has been called, frame() leaves them out.
+void lens(int fb_w, int fb_h);
+
 // Width / height of the game's framebuffer.
 float aspect();
 

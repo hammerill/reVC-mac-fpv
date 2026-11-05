@@ -571,7 +571,7 @@ index ff44eef..33cef90 100644
 +#endif
 +
 diff --git a/src/core/main.cpp b/src/core/main.cpp
-index 74b896c..1b551c5 100644
+index 74b896c..6369f6f 100644
 --- a/src/core/main.cpp
 +++ b/src/core/main.cpp
 @@ -1,4 +1,5 @@
@@ -605,6 +605,14 @@ index 74b896c..1b551c5 100644
  #ifdef NEW_RENDERER
  	if(gbNewRenderer){
  		RenderEffects_new();
+@@ -1416,6 +1419,7 @@ RenderEffects(void)
+ void
+ Render2dStuff(void)
+ {
++	FPV_HOOK(Render2dStuff, void(*)(void))
+ 	PUSH_RENDERGROUP("Render2dStuff");
+ 	RwRenderStateSet(rwRENDERSTATEZTESTENABLE, (void*)FALSE);
+ 	RwRenderStateSet(rwRENDERSTATEZWRITEENABLE, (void*)FALSE);
 diff --git a/src/core/main.h b/src/core/main.h
 index 803afb1..74d2e66 100644
 --- a/src/core/main.h
@@ -658,10 +666,10 @@ index 7bc85ee..c35a487 100644
  #else
 diff --git a/src/extras/fpvhooks.cpp b/src/extras/fpvhooks.cpp
 new file mode 100644
-index 0000000..d92e893
+index 0000000..5ba3a22
 --- /dev/null
 +++ b/src/extras/fpvhooks.cpp
-@@ -0,0 +1,16 @@
+@@ -0,0 +1,17 @@
 +#include "common.h"
 +#include "fpvhooks.h"
 +
@@ -677,13 +685,14 @@ index 0000000..d92e893
 +bool (*gFpvCarFire)(void);
 +bool (*gFpvSkipVehicleDamage)(CVehicle *vehicle);
 +bool (*gFpvSkipHelp)(const char *key);
++void (*gFpvTextLoaded)(wchar *chars, int count);
 +#endif
 diff --git a/src/extras/fpvhooks.h b/src/extras/fpvhooks.h
 new file mode 100644
-index 0000000..63aba67
+index 0000000..1b8fe67
 --- /dev/null
 +++ b/src/extras/fpvhooks.h
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,65 @@
 +#pragma once
 +
 +// Hook points for the FPV drone mod (reVC-mac-fpv) in the web build, where
@@ -703,7 +712,7 @@ index 0000000..63aba67
 +	X(DisplayRadioStationName) X(CColStore_LoadCollision) X(FindPlayerCentreOfWorld) \
 +	X(FindPlayerCentreOfWorld_NoSniperShift) X(FindPlayerCoors) X(CClouds_RenderBackground) \
 +	X(CClouds_RenderHorizon) X(CRenderer_ScanWorld) X(CRenderer_ScanSectorPoly) X(RenderEffects) \
-+	X(CPlayerPed_ProcessControl) X(PedInflictDamage)
++	X(CPlayerPed_ProcessControl) X(PedInflictDamage) X(Render2dStuff)
 +
 +enum FpvHookId {
 +#define FPV_HOOK_ENUM(name) FPVH_##name,
@@ -742,6 +751,9 @@ index 0000000..63aba67
 +// PRINT_HELP: true skips the help text with this key (help about controls
 +// the drone doesn't have).
 +extern bool (*gFpvSkipHelp)(const char *key);
++// CText::Load and LoadMissionText: the strings just loaded (NUL-separated,
++// count wchars), for the mod to reword in place (never longer).
++extern void (*gFpvTextLoaded)(wchar *chars, int count);
 +
 +#else
 +#define FPV_HOOK(name, type, ...)
@@ -1504,6 +1516,38 @@ index 81339ae..e6fb14c 100644
  	wchar outstr[256];
  
  	DefinedState();
+diff --git a/src/text/Text.cpp b/src/text/Text.cpp
+index 1369d1d..c386a32 100644
+--- a/src/text/Text.cpp
++++ b/src/text/Text.cpp
+@@ -8,6 +8,7 @@
+ #include "Messages.h"
+ #include "Text.h"
+ #include "Timer.h"
++#include "fpvhooks.h"
+ 
+ wchar WideErrorString[25];
+ 
+@@ -89,6 +90,9 @@ CText::Load(void)
+ 	}
+ 
+ 	keyArray.Update(data.chars);
++#ifdef FPV_HOOKS
++	if (gFpvTextLoaded) gFpvTextLoaded(data.chars, data.numChars);
++#endif
+ 	CFileMgr::CloseFile(file);
+ 	CFileMgr::SetDir("");
+ }
+@@ -298,6 +302,9 @@ CText::LoadMissionText(char *MissionTableName)
+ 	}
+ 
+ 	mission_keyArray.Update(mission_data.chars);
++#ifdef FPV_HOOKS
++	if (gFpvTextLoaded) gFpvTextLoaded(mission_data.chars, mission_data.numChars);
++#endif
+ 	CFileMgr::CloseFile(file);
+ 	CTimer::Resume();
+ 	CFileMgr::SetDir("");
 diff --git a/src/vehicles/Automobile.cpp b/src/vehicles/Automobile.cpp
 index 8a50ddc..b8fcbf8 100644
 --- a/src/vehicles/Automobile.cpp

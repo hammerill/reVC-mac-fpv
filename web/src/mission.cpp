@@ -13,11 +13,11 @@
 //    drops the bomb.
 //  - A failed mission starts again by itself; a passed one shows the stats
 //    and leaves Vice City to free flight (F7).
+//  - The game's texts say "FPV Drone" where they said "RC Helicopter".
 #include "common.h"
 #include "fpvhooks.h"
 
 #include <emscripten.h>
-#define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
 #include <cmath>
@@ -135,7 +135,7 @@ void bind(CVehicle *heli) {
     Log("mission: drone bound to the RC Goblin at %.2f %.2f %.2f", p.x, p.y, p.z);
     if (!g_bound_once) {
         g_bound_once = true;
-        js_toast("You are the RC Goblin. F8: radio setup · Left Ctrl / beeper switch: drop the bomb · C: camera", 9000);
+        js_toast("You are the FPV Drone. F8: radio setup · Left Ctrl / beeper switch: drop the bomb · C: camera", 9000);
     }
 }
 
@@ -223,6 +223,45 @@ void update_binding() {
         !CTimer::GetIsPaused())
         bind(rc);
 }
+
+// --- the texts ------------------------------------------------------------------
+
+// "RC Helicopter" (any case) becomes "FPV Drone", always with a capital D
+// ("RC HELICOPTER" -> "FPV DRONE").
+// In place: the string gets shorter and the rest of its room is NULs.
+void reword_texts(wchar *chars, int count) {
+    static const char kFrom[] = "rc helicopter", kTo[] = "fpv drone";
+    constexpr int kFromLen = sizeof kFrom - 1, kToLen = sizeof kTo - 1;
+    auto lower = [](wchar c) { return c >= 'A' && c <= 'Z' ? wchar(c + 32) : c; };
+    auto upper = [](wchar c) { return c >= 'a' && c <= 'z'; };
+    int changed = 0;
+    for (int start = 0; start < count;) {
+        int end = start;
+        while (end < count && chars[end]) ++end;
+        int out = start;
+        for (int i = start; i < end;) {
+            bool match = i + kFromLen <= end;
+            for (int j = 0; match && j < kFromLen; ++j) match = lower(chars[i + j]) == kFrom[j];
+            if (!match) {
+                chars[out++] = chars[i++];
+                continue;
+            }
+            bool all_upper = !upper(chars[i + 4]);  // the "E" of "HELICOPTER"
+            for (int j = 0; j < kToLen; ++j) {
+                bool up = j < 3 || j == 4 || all_upper;
+                chars[out++] = up && kTo[j] != ' ' ? wchar(kTo[j] - 32) : wchar(kTo[j]);
+            }
+            i += kFromLen;
+            ++changed;
+        }
+        while (out < end) chars[out++] = 0;
+        start = end + 1;
+    }
+    if (changed) Log("mission: %d texts say FPV Drone", changed);
+}
+
+// Before the game loads its texts (at start, before the first tick).
+[[maybe_unused]] const bool g_text_hook = (gFpvTextLoaded = reword_texts, true);
 
 // --- hooks ---------------------------------------------------------------------
 

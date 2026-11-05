@@ -89,6 +89,7 @@ struct Api {
     void (*CRenderer_ScanSectorPoly)(RwV2d *poly, int count, void (*scan)(void *list));
     void (*RenderEffects)();
     void (*CPlayerPed_ProcessControl)(CEntity *ped);
+    void (*Render2dStuff)();  // the web build only
     // PedInflictDamage (below) is detoured too
 
     // game functions the mod calls

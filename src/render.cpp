@@ -218,7 +218,43 @@ void screenshot(int w, int h) {
     Log("render: screenshot %s%s", dir.c_str(), name);
 }
 
+// librw keeps its Im2D/Im3D VBO bound to GL_ARRAY_BUFFER (not VAO state)
+// and uploads with glBufferData without rebinding: if we leave another
+// buffer there, every engine 2D/3D batch afterwards draws stale vertices.
+struct SavedGl {
+    GLint draw_fb, read_fb, array_buffer, vao, unpack, pack;
+    SavedGl() {
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw_fb);
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read_fb);
+        glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &array_buffer);
+        glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
+        glGetIntegerv(GL_UNPACK_ALIGNMENT, &unpack);
+        glGetIntegerv(GL_PACK_ALIGNMENT, &pack);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+    ~SavedGl() {
+        glBindVertexArray(GLuint(vao));
+        glBindBuffer(GL_ARRAY_BUFFER, GLuint(array_buffer));
+        glPixelStorei(GL_UNPACK_ALIGNMENT, unpack);
+        glPixelStorei(GL_PACK_ALIGNMENT, pack);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(draw_fb));
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, GLuint(read_fb));
+    }
+};
+
+bool g_lens_before_2d = false;  // lens() runs: the swap leaves the lens out
+
 }  // namespace
+
+void lens(int fb_w, int fb_h) {
+    g_lens_before_2d = true;
+    if (fb_w <= 0 || fb_h <= 0 || !fpvapi::loaded() || !init()) return;
+    static fpv_frame snapshot;
+    bool lost = false;
+    if (!drone::osd_frame(&snapshot, &lost)) return;
+    SavedGl saved;
+    post(snapshot, lost, fb_w, fb_h);
+}
 
 void frame(int fb_w, int fb_h, int win_w, int win_h) {
     if (fb_w <= 0 || fb_h <= 0 || win_w <= 0 || win_h <= 0) return;
@@ -228,24 +264,13 @@ void frame(int fb_w, int fb_h, int win_w, int win_h) {
     g_last = now;
     g_time += dt;
 
-    // librw keeps its Im2D/Im3D VBO bound to GL_ARRAY_BUFFER (not VAO state)
-    // and uploads with glBufferData without rebinding: if we leave another
-    // buffer there, every engine 2D/3D batch afterwards draws stale vertices.
-    GLint draw_fb, read_fb, array_buffer, vao, unpack, pack;
-    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw_fb);
-    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read_fb);
-    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &array_buffer);
-    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
-    glGetIntegerv(GL_UNPACK_ALIGNMENT, &unpack);
-    glGetIntegerv(GL_PACK_ALIGNMENT, &pack);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
+    SavedGl saved;
     if (fpvapi::loaded() && init()) {
         fpv.fpv_overlay_set_display(float(win_w), float(win_h), 1.0f);
         static fpv_frame snapshot;
         bool lost = false;
         if (drone::osd_frame(&snapshot, &lost)) {
-            post(snapshot, lost, fb_w, fb_h);
+            if (!g_lens_before_2d) post(snapshot, lost, fb_w, fb_h);
             if (drone::show_osd() || lost)
                 fpv_gl3_render(&g_ui, fpv.fpv_osd_draw_data(&snapshot, float(win_w), float(win_h), FPV_OSD_STYLE_ANALOG),
                                fb_w, fb_h);
@@ -253,13 +278,6 @@ void frame(int fb_w, int fb_h, int win_w, int win_h) {
         fpv_gl3_render(&g_ui, fpv.fpv_overlay_render(dt), fb_w, fb_h);
     }
     screenshot(fb_w, fb_h);
-
-    glBindVertexArray(GLuint(vao));
-    glBindBuffer(GL_ARRAY_BUFFER, GLuint(array_buffer));
-    glPixelStorei(GL_UNPACK_ALIGNMENT, unpack);
-    glPixelStorei(GL_PACK_ALIGNMENT, pack);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(draw_fb));
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, GLuint(read_fb));
 }
 
 float aspect() { return g_aspect; }

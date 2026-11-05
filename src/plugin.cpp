@@ -35,6 +35,10 @@
 #include "view.h"
 
 #if defined(__EMSCRIPTEN__)
+#include <emscripten.h>
+
+#include <cstdlib>
+
 namespace mission {
 void tick();  // web/src/mission.cpp: the Demolition Man demo
 }
@@ -58,6 +62,7 @@ namespace {
 using vc::api;
 
 bool g_game_ok = false;  // the executable matched and the hooks are in
+GLFWwindow *g_window = nullptr;
 
 // --- game detours -----------------------------------------------------------------
 
@@ -83,6 +88,7 @@ struct Original {
     void (*render_effects)();
     void (*process_control)(vc::CEntity *);
     bool (*ped_damage)(vc::CEntity *, vc::CEntity *, int, float, int, uint8_t);
+    void (*render_2d)();
 };
 Original g;
 
@@ -134,6 +140,20 @@ void render_effects_hook() {
     g.render_effects();
     pilot::render_end();
 }
+
+#if defined(__EMSCRIPTEN__)
+// Render2dStuff: the world is finished and the game's HUD and text come
+// next, so the lens bends the world only (the macOS build bends the
+// finished frame at the swap).
+void render_2d_hook() {
+    if (g_window) {
+        int fbw = 0, fbh = 0;
+        glfwGetFramebufferSize(g_window, &fbw, &fbh);
+        render::lens(fbw, fbh);
+    }
+    g.render_2d();
+}
+#endif
 
 // The sky, for a camera that may be rolled or upside down.
 void render_background_hook(int16_t tr, int16_t tg, int16_t tb, int16_t br, int16_t bg, int16_t bb, int16_t a) {
@@ -247,6 +267,9 @@ void install_game_hooks() {
     HOOK(render_effects, RenderEffects, render_effects_hook);
     HOOK(process_control, CPlayerPed_ProcessControl, process_control_hook);
     HOOK(ped_damage, PedInflictDamage, ped_damage_hook);
+#if defined(__EMSCRIPTEN__)
+    HOOK(render_2d, Render2dStuff, render_2d_hook);
+#endif
 #undef HOOK
     // The loop and the camera are essential; the rest only hide or stream things.
     // The stand-in needs all of its hooks, or Tommy could fall or get hurt at the drone.
@@ -262,8 +285,6 @@ void install_game_hooks() {
 }
 
 // --- GLFW: input and the frame ------------------------------------------------------
-
-GLFWwindow *g_window = nullptr;
 
 // Callbacks the game (or another plugin) registered; ours sit in front of them.
 GLFWkeyfun g_key_cb = nullptr;
@@ -526,8 +547,13 @@ DYLD_INTERPOSE(Hook_glfwGetJoystickAxes, glfwGetJoystickAxes)
 
 // What the game's renamed GLFW calls reach (web/src/glfw_rename.h).
 extern "C" {
-GLFWwindow *fpvweb_glfwCreateWindow(int w, int h, const char *title, GLFWmonitor *monitor, GLFWwindow *share) {
-    return Hook_glfwCreateWindow(w, h, title, monitor, share);
+// GLFW puts the window's title on the page: the page keeps its own
+// (web/shell.html) instead of the game's "GTA: Vice City".
+GLFWwindow *fpvweb_glfwCreateWindow(int w, int h, const char *, GLFWmonitor *monitor, GLFWwindow *share) {
+    char *page_title = static_cast<char *>(EM_ASM_PTR({ return stringToNewUTF8(document.title); }));
+    GLFWwindow *window = Hook_glfwCreateWindow(w, h, page_title, monitor, share);
+    free(page_title);
+    return window;
 }
 void fpvweb_glfwDestroyWindow(GLFWwindow *window) { Hook_glfwDestroyWindow(window); }
 void fpvweb_glfwSwapBuffers(GLFWwindow *window) { Hook_glfwSwapBuffers(window); }

@@ -176,15 +176,50 @@ async function loadAssets() {
   await Promise.all([worker(), worker(), worker(), worker()]);
 }
 
-// Browsers start sound only after the player clicked or pressed a key.
-let audioUnlocked = false;
-function unlock() {
-  if (audioUnlocked) return;
-  audioUnlocked = true;
-  document.getElementById('toast').classList.remove('on');
+// Browsers start sound only after the player clicked or pressed a key. That
+// first click or key only turns the sound on: the game never sees it (it
+// would skip the opening cutscene). Emscripten's own resume listeners don't
+// see it either, so the page resumes the game's audio contexts itself.
+const audioContexts = [];
+for (const name of ['AudioContext', 'webkitAudioContext']) {
+  const Base = window[name];
+  if (!Base) continue;
+  window[name] = class extends Base {
+    constructor(...args) {
+      super(...args);
+      audioContexts.push(this);
+      if (audioUnlocked) this.resume().catch(() => {});  // made after the click
+    }
+  };
 }
-addEventListener('pointerdown', unlock, {capture: true});
-addEventListener('keydown', unlock, {capture: true});
+let audioUnlocked = false;
+let swallowKey = null, swallowMouse = false;  // the release of that first key or click
+function swallow(e) {
+  e.stopImmediatePropagation();
+  e.preventDefault();
+}
+function unlock() {
+  if (audioUnlocked) return false;
+  audioUnlocked = true;
+  for (const ctx of audioContexts) if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+  document.getElementById('toast').classList.remove('on');
+  return true;
+}
+addEventListener('keydown', (e) => {
+  if (unlock()) swallowKey = e.code, swallow(e);
+  else if (e.code === swallowKey) swallow(e);  // held down: its repeats
+}, {capture: true});
+addEventListener('keyup', (e) => {
+  if (e.code === swallowKey) swallowKey = null, swallow(e);
+}, {capture: true});
+// Not preventDefault on pointerdown: the browser would then send no mousedown/mouseup.
+addEventListener('pointerdown', (e) => {
+  if (unlock()) swallowMouse = true, canvas.focus(), e.stopImmediatePropagation();
+}, {capture: true});
+addEventListener('mousedown', (e) => { if (swallowMouse) swallow(e); }, {capture: true});
+addEventListener('mouseup', (e) => {
+  if (swallowMouse) swallowMouse = false, swallow(e);
+}, {capture: true});
 // Keep the page from scrolling or the browser from stealing the game's keys.
 addEventListener('keydown', (e) => {
   if (['F1', 'F3', 'F6', 'F7', 'F8', 'F9', 'F10', 'Tab', ' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']

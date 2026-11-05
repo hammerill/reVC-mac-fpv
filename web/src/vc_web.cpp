@@ -54,6 +54,7 @@
 
 void RenderScene(void);
 void RenderEffects(void);
+void Render2dStuff(void);
 CVector FindPlayerCoors(void);
 
 namespace vc {
@@ -97,6 +98,7 @@ void w_CRenderer_ScanSectorPoly(RwV2d *poly, int count, void (*scan)(void *list)
     CRenderer::ScanSectorPoly(reinterpret_cast<rw::V2d *>(poly), count, reinterpret_cast<void (*)(CPtrList *)>(scan));
 }
 void w_RenderEffects() { RenderEffects(); }
+void w_Render2dStuff() { Render2dStuff(); }
 void w_CPlayerPed_ProcessControl(CEntity *ped) { reinterpret_cast<CPlayerPed *>(ped)->ProcessControl(); }
 bool w_PedInflictDamage(CEntity *ped, CEntity *by, int weapon, float damage, int piece, uint8_t direction) {
     return reinterpret_cast<CPed *>(ped)->InflictDamage(game(by), eWeaponType(weapon), damage, ePedPieceTypes(piece),
@@ -219,6 +221,7 @@ bool init(std::string &) {
     api.CRenderer_ScanWorld = w_CRenderer_ScanWorld;
     api.CRenderer_ScanSectorPoly = w_CRenderer_ScanSectorPoly;
     api.RenderEffects = w_RenderEffects;
+    api.Render2dStuff = w_Render2dStuff;
     api.CPlayerPed_ProcessControl = w_CPlayerPed_ProcessControl;
 
     api.FindPlayerPed = w_FindPlayerPed;

@@ -3,6 +3,9 @@
 // browser's IndexedDB folder.
 #include "fpvapi.h"
 
+#include <cstdio>
+#include <string>
+
 #include "log.h"
 
 namespace fpvapi {
@@ -37,6 +40,21 @@ bool load() {
     cfg.coords = {FPV_AXIS_POS_X, FPV_AXIS_POS_Z, FPV_AXIS_POS_Y, 1.0f};
     cfg.log = &on_fpv_log;
     cfg.log_level = FPV_LOG_INFO;
+#if defined(REVC_WEB_BF_CONFIG)
+    // The build's Betaflight setup (embedded in the page): every new drone
+    // configuration, and one reset in F8 > Drone, starts from it; saved ones
+    // and later edits are kept.
+    if (FILE *f = std::fopen(REVC_WEB_BF_CONFIG, "rb")) {
+        std::string diff;
+        char buf[4096];
+        for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) diff.append(buf, n);
+        std::fclose(f);
+        fpv_set_default_betaflight_diff(diff.c_str());
+        Log("Betaflight config: %zu bytes from the build", diff.size());
+    } else {
+        Log("Betaflight config: cannot read %s", REVC_WEB_BF_CONFIG);
+    }
+#endif
     fpv_result r = fpv_global_init(&cfg);
     if (r != FPV_OK && r != FPV_ERROR_ALREADY_INITIALIZED) {
         Log("fpv_global_init: %s (%s)", fpv_result_string(r), fpv_last_error());
