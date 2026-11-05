@@ -19,7 +19,7 @@ set(RE3_DIR "${MOD_DIR}/build/re3" CACHE PATH "reVC source with web/re3-web.patc
 set(LIBFPV_DIR "$ENV{HOME}/Projects/libfpv" CACHE PATH "libfpv source checkout")
 # The Betaflight setup every drone starts from (fpv_set_default_betaflight_diff),
 # as libfpv's own web build does; empty for libfpv's defaults.
-set(REVC_WEB_BF_CONFIG "${LIBFPV_DIR}/assets/configs/hammerill.diff.txt" CACHE FILEPATH
+set(REVC_WEB_BF_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/bf_default.diff.txt" CACHE FILEPATH
   "Betaflight diff all file the drone's configuration starts from")
 if(NOT EXISTS "${RE3_DIR}/src/core/config.h")
   message(FATAL_ERROR "No reVC source in ${RE3_DIR}: run web/setup.sh first.")

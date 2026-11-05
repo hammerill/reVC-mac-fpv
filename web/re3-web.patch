@@ -925,7 +925,7 @@ index 69f5793..047e99e 100644
  			if(CMBlur::BlurOn){
  				CMBlur::MotionBlurClose();
 diff --git a/src/skel/glfw/glfw.cpp b/src/skel/glfw/glfw.cpp
-index f5195b8..9c74565 100644
+index f5195b8..358fac9 100644
 --- a/src/skel/glfw/glfw.cpp
 +++ b/src/skel/glfw/glfw.cpp
 @@ -49,9 +49,15 @@ long _dwOperatingSystemVersion;
@@ -1043,7 +1043,7 @@ index f5195b8..9c74565 100644
  }
  
  void
-@@ -1790,6 +1843,278 @@ windowIconifyCB(GLFWwindow* window, int iconified) {
+@@ -1790,6 +1843,287 @@ windowIconifyCB(GLFWwindow* window, int iconified) {
  /*
   *****************************************************************************
   */
@@ -1252,12 +1252,21 @@ index f5195b8..9c74565 100644
 +			
 +			case GS_PLAYING_GAME:
 +			{
++#ifdef __EMSCRIPTEN__
++				// The browser paces this loop with requestAnimationFrame (the
++				// display's refresh rate). The 30 fps limiter on top of that
++				// would skip ticks: at 60 Hz a frame is due at ~33.3 ms, right
++				// on the limit, so jitter dropped it to 50 ms (20-30 fps).
++				if ( RwInitialised )
++					RsEventHandler(rsIDLE, (void *)TRUE);
++#else
 +				float ms = (float)CTimer::GetCurrentTimeInCycles() / (float)CTimer::GetCyclesPerMillisecond();
 +				if ( RwInitialised )
 +				{
 +					if (!FrontEndMenuManager.m_PrefsFrameLimiter || (1000.0f / (float)RsGlobal.maxFPS) < ms)
 +						RsEventHandler(rsIDLE, (void *)TRUE);
 +				}
++#endif
 +				break;
 +			}
 +		}
@@ -1322,7 +1331,7 @@ index f5195b8..9c74565 100644
  #ifdef _WIN32
  int PASCAL
  WinMain(HINSTANCE instance,
-@@ -1997,6 +2322,15 @@ main(int argc, char *argv[])
+@@ -1997,6 +2331,15 @@ main(int argc, char *argv[])
  	
  	initkeymap();
  
@@ -1338,7 +1347,7 @@ index f5195b8..9c74565 100644
  	while ( TRUE )
  	{
  		RwInitialised = TRUE;
-@@ -2042,228 +2376,7 @@ main(int argc, char *argv[])
+@@ -2042,228 +2385,7 @@ main(int argc, char *argv[])
  #ifdef GET_KEYBOARD_INPUT_FROM_X11
  			checkKeyPresses();
  #endif
@@ -1735,7 +1744,7 @@ index f228298..33031e7 100644
  
  // Atomic Rights plugin
 diff --git a/vendor/librw/src/gl/gl3device.cpp b/vendor/librw/src/gl/gl3device.cpp
-index e9ea6f3..b1cb786 100644
+index e9ea6f3..7d79378 100644
 --- a/vendor/librw/src/gl/gl3device.cpp
 +++ b/vendor/librw/src/gl/gl3device.cpp
 @@ -15,6 +15,9 @@
@@ -1764,7 +1773,19 @@ index e9ea6f3..b1cb786 100644
  const char *shaderDecl;
  
  // this needs a define in the shaders as well!
-@@ -1623,7 +1635,19 @@ makeVideoModeList(void)
+@@ -1399,6 +1411,11 @@ showRaster(Raster *raster, uint32 flags)
+ 	else
+ 		SDL_GL_SetSwapInterval(0);
+ 	SDL_GL_SwapWindow(glGlobals.window);
++#elif defined(__EMSCRIPTEN__)
++	// In a browser the page presents once per requestAnimationFrame anyway;
++	// glfwSwapInterval here would re-time the main loop every frame, and 0
++	// switches it to setTimeout(0), drawing frames that are never shown.
++	glfwSwapBuffers(glGlobals.window);
+ #else
+ 	if(flags & Raster::FLIPWAITVSYNCH)
+ 		glfwSwapInterval(1);
+@@ -1623,7 +1640,19 @@ makeVideoModeList(void)
  	rwFree(glGlobals.modes);
  	glGlobals.modes = rwNewT(DisplayMode, num+1, ID_DRIVER | MEMDUR_EVENT);
  
@@ -1785,7 +1806,7 @@ index e9ea6f3..b1cb786 100644
  	glGlobals.modes[0].flags = 0;
  	glGlobals.numModes = 1;
  
-@@ -1679,10 +1703,14 @@ static struct {
+@@ -1679,10 +1708,14 @@ static struct {
  	int gl;
  	int major, minor;
  } profiles[] = {
@@ -1800,7 +1821,7 @@ index e9ea6f3..b1cb786 100644
  	{ 0, 0, 0 },
  };
  
-@@ -1773,12 +1801,23 @@ initOpenGL(void)
+@@ -1773,12 +1806,23 @@ initOpenGL(void)
  	}
  */
  	gl3Caps.dxtSupported = !!GLAD_GL_EXT_texture_compression_s3tc;
