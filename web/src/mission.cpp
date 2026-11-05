@@ -403,11 +403,10 @@ void show_result() {
     std::snprintf(html, sizeof html,
                   "<h2>Demolition Man: passed</h2><dl>"
                   "<dt>Time on the sticks</dt><dd>%d:%02d</dd>"
-                  "<dt>Workers cut down by the props</dt><dd>%d</dd>"
                   "<dt>Crashes</dt><dd>%d</dd>"
                   "<dt>Attempts</dt><dd>%d</dd></dl>"
                   "<p>Vice City is yours: <b>F7</b> launches the quad anywhere, <b>F8</b> tunes it.</p>",
-                  int(secs) / 60, int(secs) % 60, g_cuts, g_crashes, g_attempt);
+                  int(secs) / 60, int(secs) % 60, g_crashes, g_attempt);
     js_result(html);
 }
 
