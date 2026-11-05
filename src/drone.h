@@ -58,6 +58,24 @@ void respawn();
 // Next camera: FPV, chase, line of sight (C). Game thread.
 void cycle_view();
 
+// A flight the host binds to something of its own (the web build's Demolition
+// Man: the drone is the mission's RC helicopter). It starts on the ground at
+// pos, Tommy stays where he is (no stand-in, no pilot pose), the game's HUD
+// and messages stay up, and F7 and Move Tommy here don't end it: rc_stop()
+// does. Game thread.
+bool rc_start(const vc::CVector &pos, float heading, const vc::CVector &pilot);
+void rc_stop();
+bool rc_active();
+
+// Puts a bound flight's drone at pos, level, at rest (it stays armed or not).
+void rc_place(const vc::CVector &pos);
+
+// The latest frame of this flight; false before the first one or with no drone.
+bool frame(fpv_frame *out);
+
+// While false, F7 doesn't launch a free flight (the host's missions run).
+void set_launch_allowed(bool allowed);
+
 // Host-injected radio channels (AETR, AUX..., -1..1), overriding devices for 0.5 s.
 void inject_channels(const float *channels, uint32_t count);
 

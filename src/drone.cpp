@@ -45,6 +45,8 @@ fpv_frame g_frame{};
 bool g_have_frame = false;     // g_frame is from this flight
 bool g_osd_visible = false;
 bool g_signal_lost = false;
+bool g_rc = false;               // a host-bound flight (rc_start)
+bool g_launch_allowed = true;    // F7 may start a free flight
 
 // The camera the game shows this frame.
 struct Shot {
@@ -159,6 +161,30 @@ void update_home() {
     fpv.fpv_gps_set_home(home);
 }
 
+// The drone at g_spawn_pos facing heading h, piloted from pilot.
+bool create(float h, const vc::CVector &pilot) {
+    g_spawn_rot[0] = 0;
+    g_spawn_rot[1] = 0;
+    g_spawn_rot[2] = std::sin(h / 2);
+    g_spawn_rot[3] = std::cos(h / 2);
+
+    fpv_drone_desc desc;
+    fpv.fpv_drone_desc_defaults(&desc);
+    for (int i = 0; i < 3; ++i) desc.position[i] = g_spawn_pos[i];
+    for (int i = 0; i < 4; ++i) desc.rotation[i] = g_spawn_rot[i];
+    desc.pilot_position[0] = pilot.x;
+    desc.pilot_position[1] = pilot.y;
+    desc.pilot_position[2] = pilot.z;
+    fpv_result r = fpv.fpv_drone_create(&desc, &g_drone);
+    if (r != FPV_OK) {
+        Log("fpv_drone_create: %s (%s)", fpv.fpv_result_string(r), fpv.fpv_last_error());
+        sfx::play(vc::kSoundError);
+        g_drone = nullptr;
+        return false;
+    }
+    return true;
+}
+
 void start() {
     if (!fpvapi::load()) {
         sfx::play(vc::kSoundError);
@@ -182,25 +208,7 @@ void start() {
     world::ignore(tommy);
     bool ground = world::raycast(nullptr, origin, down, 5.0f, &hit) != 0;
     g_spawn_pos[2] = ground ? origin[2] - hit.distance : p.z - 1.0f;
-    g_spawn_rot[0] = 0;
-    g_spawn_rot[1] = 0;
-    g_spawn_rot[2] = std::sin(h / 2);
-    g_spawn_rot[3] = std::cos(h / 2);
-
-    fpv_drone_desc desc;
-    fpv.fpv_drone_desc_defaults(&desc);
-    for (int i = 0; i < 3; ++i) desc.position[i] = g_spawn_pos[i];
-    for (int i = 0; i < 4; ++i) desc.rotation[i] = g_spawn_rot[i];
-    desc.pilot_position[0] = p.x;
-    desc.pilot_position[1] = p.y;
-    desc.pilot_position[2] = p.z;
-    fpv_result r = fpv.fpv_drone_create(&desc, &g_drone);
-    if (r != FPV_OK) {
-        Log("fpv_drone_create: %s (%s)", fpv.fpv_result_string(r), fpv.fpv_last_error());
-        sfx::play(vc::kSoundError);
-        g_drone = nullptr;
-        return;
-    }
+    if (!create(h, p)) return;
     fpv.fpv_world_set_raycast_callback(&world::raycast, nullptr);
     kamikaze::forget_detonations();
 #if defined(LIBFPV_KAMIKAZE)
@@ -245,6 +253,7 @@ void stop() {
     g_osd_visible = false;
     g_signal_lost = false;
     g_have_frame = false;
+    g_rc = false;
     Log("drone stopped");
 }
 
@@ -372,7 +381,7 @@ void step() {
     if (frame.sim_time < g_first_sim_time + 0.05) return;
     g_frame = frame;
     g_have_frame = true;
-    standin::update(frame.position);
+    if (!g_rc) standin::update(frame.position);  // a bound flight leaves Tommy where he is
     update_home();
 #if defined(LIBFPV_KAMIKAZE)
     fpv_detonation d;
@@ -459,6 +468,53 @@ void hold_for_overlay() {
 
 }  // namespace
 
+bool rc_start(const vc::CVector &pos, float heading, const vc::CVector &pilot) {
+    if (g_drone) stop();
+    if (!fpvapi::load()) return false;
+    // On whatever is under the spot (the helicopter's own wheels rest there).
+    float origin[3] = {pos.x, pos.y, pos.z + 1.0f}, down[3] = {0, 0, -1};
+    fpv_raycast_hit hit{};
+    bool ground = world::raycast(nullptr, origin, down, 4.0f, &hit) != 0;
+    g_spawn_pos[0] = pos.x;
+    g_spawn_pos[1] = pos.y;
+    g_spawn_pos[2] = ground ? origin[2] - hit.distance : pos.z;
+    if (!create(heading, pilot)) return false;
+    g_rc = true;
+    fpv.fpv_world_set_raycast_callback(&world::raycast, nullptr);
+    update_home();
+    hold_player(true);
+    g_last_step = std::chrono::steady_clock::now();
+    g_first_sim_time = -1;
+    g_have_frame = false;
+    g_shot.on = false;
+    g_view = View::Fpv;
+    audio::start();
+    sfx::play(vc::kSoundSelect);
+    Log("drone bound at %.2f %.2f %.2f heading %.1f (ground %s)", g_spawn_pos[0], g_spawn_pos[1], g_spawn_pos[2],
+        heading * kRadToDeg, ground ? "hit" : "missed");
+    return true;
+}
+
+void rc_stop() {
+    if (g_drone && g_rc) stop();
+}
+
+bool rc_active() { return g_drone && g_rc; }
+
+void rc_place(const vc::CVector &pos) {
+    if (!g_drone || !g_rc) return;
+    float p[3] = {pos.x, pos.y, pos.z};
+    fpv.fpv_drone_reset(g_drone, p, g_spawn_rot);
+}
+
+bool frame(fpv_frame *out) {
+    if (!g_drone || !g_have_frame) return false;
+    *out = g_frame;
+    return true;
+}
+
+void set_launch_allowed(bool allowed) { g_launch_allowed = allowed; }
+
 void inject_channels(const float *channels, uint32_t count) {
     if (fpvapi::loaded()) fpv.fpv_input_set_channels(channels, count);
 }
@@ -467,10 +523,10 @@ bool active() { return g_drone != nullptr; }
 
 bool camera_on() { return g_drone && g_shot.on; }
 
-bool hide_hud() { return g_drone != nullptr; }
+bool hide_hud() { return g_drone != nullptr && !g_rc; }  // a bound flight keeps the mission's HUD
 
 bool hide_text() {
-    return g_drone && ((g_have_frame && (g_frame.flags & FPV_DRONE_OSD_DISABLED) && g_view == View::Fpv) || g_signal_lost);
+    return g_drone && !g_rc && ((g_have_frame && (g_frame.flags & FPV_DRONE_OSD_DISABLED) && g_view == View::Fpv) || g_signal_lost);
 }
 
 bool drone_position(vc::CVector *out) {
@@ -481,6 +537,10 @@ bool drone_position(vc::CVector *out) {
 
 bool pilot_position(vc::CVector *out) {
     if (!g_drone || !api.FindPlayerPed()) return false;
+    if (g_rc) {  // wherever he is (a vehicle maybe): no stand-in
+        *out = vc::entity_position(api.FindPlayerPed());
+        return true;
+    }
     *out = standin::home();  // his spot, also while he stands in at the drone
     return true;
 }
@@ -586,6 +646,7 @@ void shutdown() {
 
 void camera() {
     if (!g_drone) return;
+    audio::pump();
     if (!vc::paused()) step();
     if (g_shot.on) apply_shot();
 }
@@ -608,7 +669,10 @@ void tick() {
             Log("F8 pressed, loading libfpv");
             if (fpvapi::load()) fpv.fpv_input_key(FPV_KEY_F8, 1), fpv.fpv_input_key(FPV_KEY_F8, 0);
         }
-        if (input::take_press(GLFW_KEY_F7)) toggle();
+        if (input::take_press(GLFW_KEY_F7)) {
+            if (g_launch_allowed) toggle();
+            else sfx::play(vc::kSoundError);
+        }
         return;
     }
     kamikaze::init();
@@ -618,7 +682,16 @@ void tick() {
     bool toggle_key = input::take_press(GLFW_KEY_F7);
     bool camera_key = input::take_press(GLFW_KEY_C), reset_key = input::take_press(GLFW_KEY_R);
     move |= input::take_press(GLFW_KEY_Y);
+    if (g_rc) {
+        // The host ends a bound flight; F7 and Move Tommy here don't.
+        if (toggle_key || move) sfx::play(vc::kSoundError);
+        toggle_key = move = false;
+    }
     if (!g_drone) {
+        if (toggle_key && !g_launch_allowed) {
+            sfx::play(vc::kSoundError);
+            return;
+        }
         if (toggle_key) toggle();
         return;
     }

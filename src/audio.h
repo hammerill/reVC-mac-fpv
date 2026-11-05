@@ -10,4 +10,8 @@ void stop();
 // Signal lost: the motors give way to receiver hiss.
 void set_static(bool on);
 
+// Once per frame: the web build feeds the browser's audio from the game's
+// thread here (web/src/audio_web.cpp). Nothing to do with CoreAudio's thread.
+void pump();
+
 }  // namespace audio

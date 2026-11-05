@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demolition Man FPV</title>
+<style>
+  :root {
+    --bg: #07060b;
+    --ink: #f4ecff;
+    --muted: #a99bbd;
+    --pink: #ff4fa3;
+    --cyan: #3fe0ff;
+    --bar: #241d33;
+  }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; outline: none; background: #000; }
+  #boot { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px;
+    background: radial-gradient(ellipse at 50% 120%, #3a1240 0%, var(--bg) 60%); z-index: 2; }
+  #boot.gone { display: none; }
+  .card { width: min(560px, 100%); }
+  h1 { margin: 0 0 4px; font-size: clamp(28px, 6vw, 44px); letter-spacing: .5px; line-height: 1.1;
+    background: linear-gradient(90deg, var(--pink), var(--cyan)); -webkit-background-clip: text; background-clip: text;
+    color: transparent; font-style: italic; font-weight: 800; }
+  .sub { color: var(--muted); margin: 0 0 22px; }
+  .bar { height: 8px; background: var(--bar); border-radius: 4px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--pink), var(--cyan));
+    transition: width .2s; }
+  #status { margin-top: 10px; color: var(--muted); font-variant-numeric: tabular-nums; min-height: 1.45em; }
+  #status.error { color: #ff8a8a; }
+  .tips { margin-top: 22px; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; color: var(--muted);
+    font-size: 14px; }
+  kbd { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink); background: #1b1626;
+    border: 1px solid #3a3050; border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+  #toast { position: fixed; left: 50%; top: 14px; transform: translateX(-50%); z-index: 3; max-width: calc(100% - 32px);
+    background: rgba(10, 8, 16, .82); border: 1px solid #3a3050; border-radius: 999px; padding: 7px 16px;
+    color: var(--ink); font-size: 14px; pointer-events: none; opacity: 0; transition: opacity .4s; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  #toast.on { opacity: 1; }
+  #result { position: fixed; top: 16px; right: 16px; z-index: 3; width: min(300px, calc(100% - 32px));
+    background: rgba(10, 8, 16, .88); border: 1px solid #3a3050; border-radius: 12px; padding: 14px 16px; display: none; }
+  #result.on { display: block; }
+  #result h2 { margin: 0 0 8px; font-size: 18px; color: var(--pink); font-style: italic; }
+  #result dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; font-size: 14px; }
+  #result dt { color: var(--muted); }
+  #result dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
+  #result p { margin: 10px 0 0; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+
+<div id="boot">
+  <div class="card">
+    <h1>Demolition Man FPV</h1>
+    <p class="sub">GTA Vice City (reVC) with a real Betaflight FPV quad in place of the RC Goblin.</p>
+    <div class="bar"><i id="fill"></i></div>
+    <div id="status">Starting…</div>
+    <div class="tips">
+      <kbd>F8</kbd><span>Drone settings: set up your radio here first (move a stick so the browser sees it)</span>
+      <kbd>Left Ctrl</kbd><span>Drop the bomb (or flip the beeper switch, AUX3)</span>
+      <kbd>C</kbd><span>Camera: FPV, chase, line of sight</span>
+      <kbd>R</kbd><span>Put the drone back at the van</span>
+      <kbd>Enter</kbd><span>Arm without a radio; W/S, A/D and the arrows fly it</span>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+<div id="result"></div>
+
+<script>
+'use strict';
+const ASSETS = 'assets/';
+const CACHE = 'revc-fpv-assets-v1';
+const fill = document.getElementById('fill');
+const statusEl = document.getElementById('status');
+const canvas = document.getElementById('canvas');
+
+function status(text, error) {
+  statusEl.textContent = text;
+  statusEl.classList.toggle('error', !!error);
+}
+let toastTimer = 0;
+function toast(text, ms) {
+  const t = document.getElementById('toast');
+  t.textContent = text;
+  t.classList.add('on');
+  clearTimeout(toastTimer);
+  if (ms) toastTimer = setTimeout(() => t.classList.remove('on'), ms);
+}
+const mb = (n) => (n / 1048576).toFixed(0) + ' MB';
+
+var Module = {
+  canvas,
+  libfpvDataDir: '/libfpv',
+  print: (t) => console.log(t),
+  printErr: (t) => console.warn(t),
+  noInitialRun: true,
+  preRun: [() => {
+    Module.addRunDependency('game-files');
+    loadAssets().then(() => Module.removeRunDependency('game-files'), (e) => {
+      status('Could not load the game files: ' + e.message, true);
+      console.error(e);
+    });
+  }],
+  onRuntimeInitialized: () => {
+    status('Starting the game…');
+    fill.style.width = '100%';
+    // Let the status paint before the game blocks the page while it loads the city.
+    setTimeout(() => {
+      Module.FS.chdir('/game');
+      Module.callMain([]);
+      document.getElementById('boot').classList.add('gone');
+      canvas.focus();
+      if (!audioUnlocked) toast('Click or press a key for sound');
+    }, 50);
+  },
+};
+
+// Each file comes from the browser's cache when it is there, else from the
+// server (and goes in the cache), straight into the game's memory file system.
+async function loadAssets() {
+  const manifest = await (await fetch(ASSETS + 'manifest.json', {cache: 'no-cache'})).json();
+  const total = manifest.files.reduce((a, f) => a + f.size, 0);
+  let cache = null;
+  try { cache = await caches.open(CACHE); } catch (e) { /* no Cache Storage (http, private window) */ }
+  let done = 0, fromCache = 0;
+  const show = () => {
+    fill.style.width = (100 * done / total).toFixed(1) + '%';
+    status(`Game files: ${mb(done)} of ${mb(total)}` + (fromCache ? ` (${mb(fromCache)} already in this browser)` : ''));
+  };
+  const queue = manifest.files.slice();
+  async function worker() {
+    for (let f; (f = queue.shift());) {
+      const url = ASSETS + f.path + '?s=' + f.size;
+      let res = cache && await cache.match(url).catch(() => null);
+      const cached = !!res;
+      if (!res) {
+        res = await fetch(url);
+        if (!res.ok) throw new Error(`${f.path}: HTTP ${res.status}`);
+      }
+      let data;
+      if (cached) {
+        data = new Uint8Array(await res.arrayBuffer());
+        fromCache += data.length;
+        done += data.length;
+      } else {
+        const keep = cache ? res.clone() : null;
+        const reader = res.body.getReader();
+        data = new Uint8Array(f.size);
+        let at = 0;
+        for (;;) {
+          const {done: end, value} = await reader.read();
+          if (end) break;
+          if (at + value.length > data.length) {  // size changed on the server
+            const bigger = new Uint8Array(at + value.length);
+            bigger.set(data.subarray(0, at));
+            data = bigger;
+          }
+          data.set(value, at);
+          at += value.length;
+          done += value.length;
+          show();
+        }
+        if (at !== data.length) data = data.subarray(0, at);
+        if (keep) cache.put(url, keep).catch(() => {});
+      }
+      const path = '/game/' + f.path;
+      Module.FS.mkdirTree(path.substring(0, path.lastIndexOf('/')));
+      Module.FS.writeFile(path, data, {canOwn: true});
+      show();
+    }
+  }
+  show();
+  await Promise.all([worker(), worker(), worker(), worker()]);
+}
+
+// Browsers start sound only after the player clicked or pressed a key.
+let audioUnlocked = false;
+function unlock() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  document.getElementById('toast').classList.remove('on');
+}
+addEventListener('pointerdown', unlock, {capture: true});
+addEventListener('keydown', unlock, {capture: true});
+// Keep the page from scrolling or the browser from stealing the game's keys.
+addEventListener('keydown', (e) => {
+  if (['F1', 'F3', 'F6', 'F7', 'F8', 'F9', 'F10', 'Tab', ' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
+      .includes(e.key)) e.preventDefault();
+});
+canvas.addEventListener('pointerdown', () => canvas.focus());
+
+// The mod reports the mission's progress (web/src/mission.cpp).
+window.revcFpv = {
+  toast,
+  result(html) {
+    const r = document.getElementById('result');
+    r.innerHTML = html;
+    r.classList.toggle('on', !!html);
+  },
+};
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>

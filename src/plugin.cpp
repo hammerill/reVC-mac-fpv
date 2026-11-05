@@ -34,12 +34,24 @@
 #include "vc.h"
 #include "view.h"
 
+#if defined(__EMSCRIPTEN__)
+namespace mission {
+void tick();  // web/src/mission.cpp: the Demolition Man demo
+}
+#endif
+
+#if defined(__EMSCRIPTEN__)
+// The web build has no dyld: the game's GLFW calls are renamed to the
+// fpvweb_* wrappers at the end of this file (web/src/glfw_rename.h).
+#define DYLD_INTERPOSE(replacement, replacee)
+#else
 #define DYLD_INTERPOSE(replacement, replacee)                                                                    \
     __attribute__((used)) static struct {                                                                        \
         const void *replacement_;                                                                                \
         const void *replacee_;                                                                                   \
     } interpose_##replacee __attribute__((section("__DATA,__interpose"))) = {(const void *)&replacement,        \
                                                                              (const void *)&replacee};
+#endif
 
 namespace {
 
@@ -80,8 +92,13 @@ bool g_scanning = false;  // inside CRenderer::ScanWorld
 // CGame::Process: the world went one step; keys and the session follow.
 void game_process_hook() {
     g.game_process();
+#if defined(__EMSCRIPTEN__)
+    mission::tick();
+#endif
     drone::tick();
+#if !defined(__EMSCRIPTEN__)
     autotest::tick();
+#endif
 }
 
 // CCamera::Process: the game built its camera; in flight ours replaces it.
@@ -503,6 +520,43 @@ const float *Hook_glfwGetJoystickAxes(int jid, int *count) {
     return axes;
 }
 DYLD_INTERPOSE(Hook_glfwGetJoystickAxes, glfwGetJoystickAxes)
+
+#if defined(__EMSCRIPTEN__)
+}  // namespace
+
+// What the game's renamed GLFW calls reach (web/src/glfw_rename.h).
+extern "C" {
+GLFWwindow *fpvweb_glfwCreateWindow(int w, int h, const char *title, GLFWmonitor *monitor, GLFWwindow *share) {
+    return Hook_glfwCreateWindow(w, h, title, monitor, share);
+}
+void fpvweb_glfwDestroyWindow(GLFWwindow *window) { Hook_glfwDestroyWindow(window); }
+void fpvweb_glfwSwapBuffers(GLFWwindow *window) { Hook_glfwSwapBuffers(window); }
+GLFWkeyfun fpvweb_glfwSetKeyCallback(GLFWwindow *w, GLFWkeyfun cb) { return Hook_glfwSetKeyCallback(w, cb); }
+GLFWcharfun fpvweb_glfwSetCharCallback(GLFWwindow *w, GLFWcharfun cb) { return Hook_glfwSetCharCallback(w, cb); }
+GLFWmousebuttonfun fpvweb_glfwSetMouseButtonCallback(GLFWwindow *w, GLFWmousebuttonfun cb) {
+    return Hook_glfwSetMouseButtonCallback(w, cb);
+}
+GLFWcursorposfun fpvweb_glfwSetCursorPosCallback(GLFWwindow *w, GLFWcursorposfun cb) {
+    return Hook_glfwSetCursorPosCallback(w, cb);
+}
+GLFWscrollfun fpvweb_glfwSetScrollCallback(GLFWwindow *w, GLFWscrollfun cb) { return Hook_glfwSetScrollCallback(w, cb); }
+GLFWwindowfocusfun fpvweb_glfwSetWindowFocusCallback(GLFWwindow *w, GLFWwindowfocusfun cb) {
+    return Hook_glfwSetWindowFocusCallback(w, cb);
+}
+GLFWcursorenterfun fpvweb_glfwSetCursorEnterCallback(GLFWwindow *w, GLFWcursorenterfun cb) {
+    return Hook_glfwSetCursorEnterCallback(w, cb);
+}
+void fpvweb_glfwSetInputMode(GLFWwindow *w, int mode, int value) { Hook_glfwSetInputMode(w, mode, value); }
+void fpvweb_glfwGetCursorPos(GLFWwindow *w, double *x, double *y) { Hook_glfwGetCursorPos(w, x, y); }
+void fpvweb_glfwSetCursorPos(GLFWwindow *w, double x, double y) { Hook_glfwSetCursorPos(w, x, y); }
+int fpvweb_glfwGetMouseButton(GLFWwindow *w, int button) { return Hook_glfwGetMouseButton(w, button); }
+int fpvweb_glfwGetGamepadState(int jid, GLFWgamepadstate *state) { return Hook_glfwGetGamepadState(jid, state); }
+const unsigned char *fpvweb_glfwGetJoystickButtons(int jid, int *count) { return Hook_glfwGetJoystickButtons(jid, count); }
+const float *fpvweb_glfwGetJoystickAxes(int jid, int *count) { return Hook_glfwGetJoystickAxes(jid, count); }
+}
+
+namespace {
+#endif
 
 __attribute__((constructor)) void on_load() {
     // Don't pass the injection on to anything the game launches.

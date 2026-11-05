@@ -15,6 +15,9 @@ void on_focus(bool focused);
 // A press of this GLFW key since the last call (and the overlay wasn't typing).
 bool take_press(int key);
 
+// The key is held (GLFW key code), and the overlay doesn't have the keyboard.
+bool down(int key);
+
 // The overlay has the keyboard and mouse: the game gets nothing.
 bool overlay_has_input();
 

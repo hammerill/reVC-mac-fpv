@@ -113,6 +113,8 @@ void on_focus(bool focused) {
         }
 }
 
+bool down(int key) { return key >= 0 && key <= GLFW_KEY_LAST && g_down[key] && !overlay_has_input(); }
+
 bool take_press(int key) {
     bool p = g_pressed[key];
     g_pressed[key] = false;

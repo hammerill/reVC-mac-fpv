@@ -1,6 +1,17 @@
 #include "render.h"
 
+#if defined(__EMSCRIPTEN__)
+#include <GLES3/gl3.h>  // WebGL 2
+#define FPV_GL3_GLES
+#define GLSL_HEADER "#version 300 es\nprecision highp float;\n"
+#define SCENE_FORMAT GL_RGB8  // a copy of the canvas, which may have no alpha
+#define SCENE_LAYOUT GL_RGB
+#else
 #include <OpenGL/gl3.h>
+#define GLSL_HEADER "#version 330 core\n"
+#define SCENE_FORMAT GL_RGBA8
+#define SCENE_LAYOUT GL_RGBA
+#endif
 
 #include <sys/stat.h>
 
@@ -35,11 +46,9 @@ double g_time = 0;
 
 // The FPV post-process: Brown-Conrady lens distortion (docs/INTEGRATION.md),
 // analog noise and breakup, and full static when the signal is lost.
-const char *kPostVs = R"(#version 330 core
-out vec2 uv;
+const char *kPostVs = GLSL_HEADER R"(out vec2 uv;
 void main() { vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); uv = p; gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); })";
-const char *kPostFs = R"(#version 330 core
-in vec2 uv; uniform sampler2D scene; uniform vec2 k; uniform float zoom; uniform float aspect;
+const char *kPostFs = GLSL_HEADER R"(in vec2 uv; uniform sampler2D scene; uniform vec2 k; uniform float zoom; uniform float aspect;
 uniform float noise; uniform float breakup; uniform float time; uniform float analog; uniform float lost;
 out vec4 o;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -143,7 +152,7 @@ void post(const fpv_frame &f, bool lost, int w, int h) {
 
     glBindTexture(GL_TEXTURE_2D, g_post.scene);
     if (g_post.w != w || g_post.h != h) {
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexImage2D(GL_TEXTURE_2D, 0, SCENE_FORMAT, w, h, 0, SCENE_LAYOUT, GL_UNSIGNED_BYTE, nullptr);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);

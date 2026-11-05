@@ -1,0 +1,1737 @@
+diff --git a/src/audio/MusicManager.cpp b/src/audio/MusicManager.cpp
+index e569f8c..1a6896d 100644
+--- a/src/audio/MusicManager.cpp
++++ b/src/audio/MusicManager.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "fpvhooks.h"
+ #include <time.h>
+ #include "soundlist.h"
+ #include "MusicManager.h"
+@@ -1272,6 +1273,7 @@ cMusicManager::SetStripClubTrackPos(uint8 scriptObject)
+ void
+ cMusicManager::DisplayRadioStationName()
+ {
++	FPV_HOOK(DisplayRadioStationName, void(*)(void*), this)
+ 	uint8 gStreamedSound;
+ 	static wchar *pCurrentStation = nil;
+ 	static uint8 cDisplay = 0;
+diff --git a/src/audio/oal/aldlist.cpp b/src/audio/oal/aldlist.cpp
+index 6024adf..0317a2d 100644
+--- a/src/audio/oal/aldlist.cpp
++++ b/src/audio/oal/aldlist.cpp
+@@ -40,9 +40,18 @@ ALDeviceList::ALDeviceList()
+ 
+ 	defaultDeviceIndex = 0;
+ 
++#ifdef __EMSCRIPTEN__
++	// The browser's OpenAL lists its one device only through the basic specifiers.
++#define ALC_ALL_DEVICES_SPECIFIER ALC_DEVICE_SPECIFIER
++#define ALC_DEFAULT_ALL_DEVICES_SPECIFIER ALC_DEFAULT_DEVICE_SPECIFIER
++	if (true) {
++#else
+ 	if (alcIsExtensionPresent(NULL, "ALC_ENUMERATION_EXT")) {
++#endif
+ 		devices = (char *)alcGetString(NULL, ALC_ALL_DEVICES_SPECIFIER);
+ 		defaultDeviceName = (char *)alcGetString(NULL, ALC_DEFAULT_ALL_DEVICES_SPECIFIER);
++		if (devices == NULL || defaultDeviceName == NULL)
++			devices = (char *)"\0";
+ 		
+ 		index = 0;
+ 		// go through device list (each device terminated with a single NULL, list terminated with double NULL)
+diff --git a/src/audio/oal/channel.cpp b/src/audio/oal/channel.cpp
+index 04e7e52..b90f807 100644
+--- a/src/audio/oal/channel.cpp
++++ b/src/audio/oal/channel.cpp
+@@ -131,7 +131,8 @@ void CChannel::Start()
+ 	}
+ 	else
+ 		alBufferData(alBuffers[id], AL_FORMAT_MONO16, Data, DataSize, Frequency);
+-	if ( LoopPoints[0] != 0 && LoopPoints[0] != -1 )
++	extern bool gbALLoopPoints;
++	if ( gbALLoopPoints && LoopPoints[0] != 0 && LoopPoints[0] != -1 )
+ 		alBufferiv(alBuffers[id], AL_LOOP_POINTS_SOFT, LoopPoints);
+ 	alSourcei(alSources[id], AL_BUFFER, alBuffers[id]);
+ 	alSourcePlay(alSources[id]);
+diff --git a/src/audio/sampman_oal.cpp b/src/audio/sampman_oal.cpp
+index 6740f08..7846c7f 100644
+--- a/src/audio/sampman_oal.cpp
++++ b/src/audio/sampman_oal.cpp
+@@ -69,6 +69,7 @@ unsigned int _maxSamples;
+ float        _fPrevEaxRatioDestination; 
+ bool         _effectsSupported = false;
+ bool         _usingEFX;
++bool         gbALLoopPoints = true;
+ float        _fEffectsLevel;
+ ALuint       ALEffect = AL_EFFECT_NULL;
+ ALuint       ALEffectSlot = AL_EFFECTSLOT_NULL;
+@@ -850,12 +851,18 @@ cSampleManager::Initialise(void)
+ 		alcMakeContextCurrent(ALContext);
+ 	
+ 		const char* ext=(const char*)alGetString(AL_EXTENSIONS);
++#ifdef __EMSCRIPTEN__
++		// The browser's OpenAL (Web Audio) has no loop points: looped
++		// samples loop whole instead of from their loop start.
++		gbALLoopPoints = ext && strstr(ext,"AL_SOFT_loop_points")!=NULL;
++#else
+ 		ASSERT(strstr(ext,"AL_SOFT_loop_points")!=NULL);
+ 		if ( strstr(ext,"AL_SOFT_loop_points")==NULL )
+ 		{
+ 			Terminate();
+ 			return FALSE;
+ 		}
++#endif
+ 		
+ 		alListenerf (AL_GAIN,     1.0f);
+ 		alListener3f(AL_POSITION, 0.0f, 0.0f, 0.0f);
+@@ -927,8 +934,15 @@ cSampleManager::Initialise(void)
+ 				
+ 				nStreamLength[i] = tatalms;
+ 			}
+-			else
++			else {
++#ifdef __EMSCRIPTEN__
++				// The web build leaves the radio out: a length of 1 ms keeps the
++				// music manager's "position % length" from dividing by zero.
++				nStreamLength[i] = 1;
++#else
+ 				USERERROR("Can't open '%s'\n", StreamedNameTable[i]);
++#endif
++			}
+ 		}
+ #ifdef AUDIO_CACHE
+ 		cacheFile = fcaseopen("audio\\sound.cache", "wb");
+diff --git a/src/collision/ColStore.cpp b/src/collision/ColStore.cpp
+index f1e695f..602e8cb 100644
+--- a/src/collision/ColStore.cpp
++++ b/src/collision/ColStore.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "fpvhooks.h"
+ 
+ #include "templates.h"
+ #include "General.h"
+@@ -168,6 +169,7 @@ CColStore::AddCollisionNeededAtPosn(const CVector2D &pos)
+ void
+ CColStore::LoadCollision(const CVector2D &pos)
+ {
++	FPV_HOOK(CColStore_LoadCollision, void(*)(const float*), (const float*)&pos)
+ 	int i;
+ 
+ 	if(CStreaming::ms_disableStreaming)
+diff --git a/src/control/Darkel.cpp b/src/control/Darkel.cpp
+index a6aca57..c92323c 100644
+--- a/src/control/Darkel.cpp
++++ b/src/control/Darkel.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "fpvhooks.h"
+ 
+ #include "main.h"
+ #include "Darkel.h"
+@@ -63,6 +64,7 @@ CDarkel::CalcFade(uint32 time, uint32 start, uint32 end)
+ void
+ CDarkel::DrawMessages()
+ {
++	FPV_HOOK(CDarkel_DrawMessages, void(*)(void))
+ 	if (CReplay::IsPlayingBack())
+ 		return;
+ 
+diff --git a/src/control/Garages.cpp b/src/control/Garages.cpp
+index 4c3ceb5..087871d 100644
+--- a/src/control/Garages.cpp
++++ b/src/control/Garages.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "fpvhooks.h"
+ 
+ #include "Garages.h"
+ #include "main.h"
+@@ -1400,6 +1401,7 @@ void CGarage::RemoveCarsBlockingDoorNotInside()
+ 
+ void CGarages::PrintMessages()
+ {
++	FPV_HOOK(CGarages_PrintMessages, void(*)(void))
+ 	if (CTimer::GetTimeInMilliseconds() > MessageStartTime && CTimer::GetTimeInMilliseconds() < MessageEndTime) {
+ 		CFont::DrawFonts();
+ 		CFont::SetScale(SCREEN_SCALE_X(1.2f), SCREEN_SCALE_Y(1.5f));
+diff --git a/src/control/Pickups.cpp b/src/control/Pickups.cpp
+index fd7bfe0..652995a 100644
+--- a/src/control/Pickups.cpp
++++ b/src/control/Pickups.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "fpvhooks.h"
+ 
+ #include "main.h"
+ 
+@@ -1276,6 +1277,7 @@ CPickups::DoCollectableEffects(CEntity *entity)
+ void
+ CPickups::RenderPickUpText()
+ {
++	FPV_HOOK(CPickups_RenderPickUpText, void(*)(void))
+ 	wchar *strToPrint;
+ 	for (int32 i = 0; i < NumMessages; i++) {
+ 
+diff --git a/src/control/Script4.cpp b/src/control/Script4.cpp
+index ac632b1..6110641 100644
+--- a/src/control/Script4.cpp
++++ b/src/control/Script4.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "fpvhooks.h"
+ 
+ #include "Script.h"
+ #include "ScriptCommands.h"
+@@ -2182,6 +2183,12 @@ int8 CRunningScript::ProcessCommands900To999(int32 command)
+ 		return 0;
+ 	case COMMAND_PRINT_HELP:
+ 	{
++#ifdef FPV_HOOKS
++		if (gFpvSkipHelp && gFpvSkipHelp((char*)&CTheScripts::ScriptSpace[m_nIp])) {
++			m_nIp += KEY_LENGTH_IN_SCRIPT;
++			return 0;
++		}
++#endif
+ 		if (CCamera::m_bUseMouse3rdPerson && (
+ 			strcmp((char*)&CTheScripts::ScriptSpace[m_nIp], "HELP15") == 0 ||
+ 			strcmp((char*)&CTheScripts::ScriptSpace[m_nIp], "GUN_2A") == 0 ||
+diff --git a/src/control/Script6.cpp b/src/control/Script6.cpp
+index 4d7121f..264aa37 100644
+--- a/src/control/Script6.cpp
++++ b/src/control/Script6.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "fpvhooks.h"
+ 
+ #include "Script.h"
+ #include "ScriptCommands.h"
+@@ -373,6 +374,10 @@ int8 CRunningScript::ProcessCommands1000To1099(int32 command)
+ 	case COMMAND_LOAD_AND_LAUNCH_MISSION_INTERNAL:
+ 	{
+ 		CollectParameters(&m_nIp, 1);
++#ifdef FPV_HOOKS
++		if (gFpvMissionLaunch)
++			ScriptParams[0] = gFpvMissionLaunch(ScriptParams[0]);
++#endif
+ 
+ 		if (CTheScripts::NumberOfExclusiveMissionScripts > 0 && ScriptParams[0] <= UINT16_MAX - 2)
+ 			return 0;
+diff --git a/src/control/Script8.cpp b/src/control/Script8.cpp
+index 56d7ed9..bbed950 100644
+--- a/src/control/Script8.cpp
++++ b/src/control/Script8.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "fpvhooks.h"
+ 
+ #include "Script.h"
+ #include "ScriptCommands.h"
+@@ -150,6 +151,12 @@ int8 CRunningScript::ProcessCommands1400To1499(int32 command)
+ 		return 0;
+ 	}
+ 	case COMMAND_IS_IN_CAR_FIRE_BUTTON_PRESSED:
++#ifdef FPV_HOOKS
++		if (gFpvCarFire && gFpvCarFire()) {
++			UpdateCompareFlag(true);
++			return 0;
++		}
++#endif
+ 		UpdateCompareFlag(CPad::GetPad(0)->GetCarGunFired());
+ 		return 0;
+ 	case COMMAND_HAS_CHAR_ATTEMPTED_ATTRACTOR:
+diff --git a/src/core/Camera.cpp b/src/core/Camera.cpp
+index e7cd65a..2b48974 100644
+--- a/src/core/Camera.cpp
++++ b/src/core/Camera.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "fpvhooks.h"
+ 
+ #include "main.h"
+ #include "Draw.h"
+@@ -250,6 +251,7 @@ CCamera::Init(void)
+ void
+ CCamera::Process(void)
+ {
++	FPV_HOOK(CCamera_Process, void(*)(void*), this)
+ 	// static bool InterpolatorNotInitialised = true;	// unused
+ 	static float PlayerMinDist = 1.3f;
+ 	static bool WasPreviouslyInterSyhonFollowPed = false;	// only written
+diff --git a/src/core/CdStreamPosix.cpp b/src/core/CdStreamPosix.cpp
+index 30fe06a..05d3d55 100644
+--- a/src/core/CdStreamPosix.cpp
++++ b/src/core/CdStreamPosix.cpp
+@@ -1,4 +1,4 @@
+-#ifndef _WIN32
++#if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
+ #include "common.h"
+ #include "crossplatform.h"
+ #include <signal.h>
+diff --git a/src/core/CdStreamWeb.cpp b/src/core/CdStreamWeb.cpp
+new file mode 100644
+index 0000000..210ebd5
+--- /dev/null
++++ b/src/core/CdStreamWeb.cpp
+@@ -0,0 +1,167 @@
++// Web (Emscripten) CdStream: the IMG files are in the browser's memory
++// (MEMFS), so a read completes at once, on the game's only thread. The
++// interface and status codes are those of CdStreamPosix.cpp.
++#ifdef __EMSCRIPTEN__
++#include "common.h"
++#include "crossplatform.h"
++#include <fcntl.h>
++#include <sys/stat.h>
++#include <unistd.h>
++
++#include "CdStream.h"
++#include "rwcore.h"
++#include "MemoryMgr.h"
++
++struct CdReadInfo
++{
++	int32 nStatus;
++};
++
++static char gCdImageNames[MAX_CDIMAGES + 1][64];
++static int32 gNumImages;
++static int32 gNumChannels;
++static int32 gImgFiles[MAX_CDIMAGES]; // -1: error 0: unused, otherwise fd + 1
++static char *gImgNames[MAX_CDIMAGES];
++static CdReadInfo *gpReadInfo;
++static int32 lastPosnRead;
++
++void
++CdStreamInitThread(void)
++{
++}
++
++void
++CdStreamInit(int32 numChannels)
++{
++	gNumImages = 0;
++	gNumChannels = numChannels;
++	gpReadInfo = (CdReadInfo *)calloc(numChannels, sizeof(CdReadInfo));
++}
++
++uint32
++GetGTA3ImgSize(void)
++{
++	struct stat st;
++	if (gImgFiles[0] <= 0 || fstat(gImgFiles[0] - 1, &st) != 0)
++		return 0;
++	return (uint32)st.st_size;
++}
++
++void
++CdStreamShutdown(void)
++{
++	free(gpReadInfo);
++	gpReadInfo = nil;
++}
++
++int32
++CdStreamRead(int32 channel, void *buffer, uint32 offset, uint32 size)
++{
++	lastPosnRead = size + offset;
++	int32 hImage = gImgFiles[_GET_INDEX(offset)];
++	CdReadInfo *pChannel = &gpReadInfo[channel];
++	if (hImage <= 0) {
++		pChannel->nStatus = STREAM_ERROR;
++		return STREAM_SUCCESS;
++	}
++	size_t bytes = (size_t)size * CDSTREAM_SECTOR_SIZE;
++	ssize_t got = pread(hImage - 1, buffer, bytes, (off_t)_GET_OFFSET(offset) * CDSTREAM_SECTOR_SIZE);
++	pChannel->nStatus = got < 0 ? STREAM_ERROR : STREAM_NONE;
++	return STREAM_SUCCESS;
++}
++
++int32
++CdStreamGetStatus(int32 channel)
++{
++	CdReadInfo *pChannel = &gpReadInfo[channel];
++	int32 status = pChannel->nStatus;
++	pChannel->nStatus = STREAM_NONE;
++	return status;
++}
++
++int32
++CdStreamGetLastPosn(void)
++{
++	return lastPosnRead;
++}
++
++int32
++CdStreamSync(int32 channel)
++{
++	return gpReadInfo[channel].nStatus;
++}
++
++void
++AddToQueue(Queue *queue, int32 item)
++{
++	queue->items[queue->tail] = item;
++	queue->tail = (queue->tail + 1) % queue->size;
++}
++
++int32
++GetFirstInQueue(Queue *queue)
++{
++	if (queue->head == queue->tail)
++		return -1;
++	return queue->items[queue->head];
++}
++
++void
++RemoveFirstInQueue(Queue *queue)
++{
++	if (queue->head == queue->tail)
++		return;
++	queue->head = (queue->head + 1) % queue->size;
++}
++
++bool
++CdStreamAddImage(char const *path)
++{
++	int fd = open(path, O_RDONLY);
++	if (fd == -1) {
++		char *real = casepath(path, false);
++		if (real) {
++			fd = open(real, O_RDONLY);
++			free(real);
++		}
++	}
++	if (fd == -1) {
++		debug("cdvd_stream: can't open %s\n", path);
++		return false;
++	}
++	gImgFiles[gNumImages] = fd + 1;
++	gImgNames[gNumImages] = strdup(path);
++	strncpy(gCdImageNames[gNumImages], path, 63);
++	gNumImages++;
++	return true;
++}
++
++char *
++CdStreamGetImageName(int32 cd)
++{
++	if (gImgFiles[cd] > 0)
++		return gImgNames[cd];
++	return nil;
++}
++
++void
++CdStreamRemoveImages(void)
++{
++	for (int32 i = 0; i < gNumChannels; i++)
++		gpReadInfo[i].nStatus = STREAM_NONE;
++	for (int32 i = 0; i < gNumImages; i++) {
++		if (gImgFiles[i] > 0)
++			close(gImgFiles[i] - 1);
++		free(gImgNames[i]);
++		gImgFiles[i] = 0;
++		gImgNames[i] = nil;
++	}
++	gNumImages = 0;
++}
++
++int32
++CdStreamGetNumImages(void)
++{
++	return gNumImages;
++}
++#endif
+diff --git a/src/core/Game.cpp b/src/core/Game.cpp
+index c5e5224..2792005 100644
+--- a/src/core/Game.cpp
++++ b/src/core/Game.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "fpvhooks.h"
+ #include "platform.h"
+ 
+ #include "Game.h"
+@@ -837,6 +838,7 @@ void CGame::InitialiseWhenRestarting(void)
+ 
+ void CGame::Process(void) 
+ {
++	FPV_HOOK(CGame_Process, void(*)(void))
+ 	CPad::UpdatePads();
+ #ifdef USE_CUSTOM_ALLOCATOR
+ 	ProcessTidyUpMemory();
+diff --git a/src/core/PlayerInfo.cpp b/src/core/PlayerInfo.cpp
+index 36d05b8..a247348 100644
+--- a/src/core/PlayerInfo.cpp
++++ b/src/core/PlayerInfo.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "fpvhooks.h"
+ 
+ #include "Automobile.h"
+ #include "Bridge.h"
+@@ -652,6 +653,7 @@ CPlayerInfo::GetPos()
+ CVector
+ FindPlayerCoors(void)
+ {
++	FPV_HOOK(FindPlayerCoors, CVector(*)(void))
+ #ifdef FIX_BUGS
+ 	if (CReplay::IsPlayingBack())
+ 		return TheCamera.GetPosition();
+@@ -714,6 +716,12 @@ FindPlayerPed(void)
+ const CVector &
+ FindPlayerCentreOfWorld(int32 player)
+ {
++	#ifdef FPV_HOOKS
++	if (gFpvHooks[FPVH_FindPlayerCentreOfWorld] && !gFpvHookBusy[FPVH_FindPlayerCentreOfWorld]) {
++		FpvHookGuard g(FPVH_FindPlayerCentreOfWorld);
++		return *((const CVector *(*)(int))gFpvHooks[FPVH_FindPlayerCentreOfWorld])(player);
++	}
++#endif
+ #ifdef FIX_BUGS
+ 	if(CReplay::IsPlayingBack()) return TheCamera.GetPosition();
+ #endif
+@@ -726,6 +734,12 @@ FindPlayerCentreOfWorld(int32 player)
+ const CVector &
+ FindPlayerCentreOfWorld_NoSniperShift(void)
+ {
++	#ifdef FPV_HOOKS
++	if (gFpvHooks[FPVH_FindPlayerCentreOfWorld_NoSniperShift] && !gFpvHookBusy[FPVH_FindPlayerCentreOfWorld_NoSniperShift]) {
++		FpvHookGuard g(FPVH_FindPlayerCentreOfWorld_NoSniperShift);
++		return *(CVector *)((const CVector *(*)(void))gFpvHooks[FPVH_FindPlayerCentreOfWorld_NoSniperShift])();
++	}
++#endif
+ #ifdef FIX_BUGS
+ 	if (CReplay::IsPlayingBack()) return TheCamera.GetPosition();
+ #endif
+diff --git a/src/core/Timer.cpp b/src/core/Timer.cpp
+index 77f26a8..5877c7b 100644
+--- a/src/core/Timer.cpp
++++ b/src/core/Timer.cpp
+@@ -301,7 +301,7 @@ uint32 CTimer::GetCurrentTimeInCycles(void)
+ 	}
+ 	else
+ #endif
+-		return RsTimer() - oldPcTimer;
++		return (uint32)(int64)(RsTimer() - oldPcTimer); // through int64: a negative double to uint32 is 0 on wasm
+ }
+ 
+ bool CTimer::GetIsSlowMotionActive(void)
+diff --git a/src/core/Timer.h b/src/core/Timer.h
+index 819bd30..50e4879 100644
+--- a/src/core/Timer.h
++++ b/src/core/Timer.h
+@@ -2,6 +2,9 @@
+ 
+ class CTimer
+ {
++#ifdef FPV_HOOKS
++public: // the FPV mod reads the current values (web build)
++#endif
+ 
+ 	static uint32 m_snTimeInMilliseconds;
+ 	static uint32 m_snTimeInMillisecondsPauseMode;
+diff --git a/src/core/config.h b/src/core/config.h
+index ff44eef..33cef90 100644
+--- a/src/core/config.h
++++ b/src/core/config.h
+@@ -36,7 +36,11 @@ enum Config {
+ 	NUMBUILDINGS = 7000,
+ 	NUMTREADABLES = 1,
+ 	NUMOBJECTS = 460,
++#ifdef __EMSCRIPTEN__
++	NUMDUMMIES = 4000,	// this install's data needs more than 2340
++#else
+ 	NUMDUMMIES = 2340,
++#endif
+ 	NUMAUDIOSCRIPTOBJECTS = 192,
+ 	NUMCOLMODELS = 4400,
+ 	NUMCUTSCENEOBJECTS = 50,	// not a pool in VC
+@@ -415,7 +419,7 @@ static_assert(false, "SUPPORT_XBOX_SCRIPT and SUPPORT_MOBILE_SCRIPT are mutually
+ #endif
+ 
+ // Streaming
+-#if !defined(_WIN32) && !defined(__SWITCH__)
++#if !defined(_WIN32) && !defined(__SWITCH__) && !defined(__EMSCRIPTEN__)
+ 	//#define ONE_THREAD_PER_CHANNEL // Don't use if you're not on SSD/Flash - also not utilized too much right now(see commented LoadAllRequestedModels in Streaming.cpp)
+ 	#define FLUSHABLE_STREAMING // Make it possible to interrupt reading when processing file isn't needed anymore.
+ #endif
+@@ -517,3 +521,14 @@ static_assert(false, "SUPPORT_XBOX_SCRIPT and SUPPORT_MOBILE_SCRIPT are mutually
+ #undef MULTITHREADED_AUDIO
+ #undef RADIO_SCROLL_TO_PREV_STATION
+ #endif
++
++// Web (Emscripten): one thread, no X11, files in the browser's memory.
++#ifdef __EMSCRIPTEN__
++#undef MULTITHREADED_AUDIO
++#undef FLUSHABLE_STREAMING
++#undef ONE_THREAD_PER_CHANNEL
++#undef DETECT_JOYSTICK_MENU
++#undef AUDIO_OAL_USE_OPUS
++#undef USE_TXD_CDIMAGE	// textures convert as they stream in, no txd.img built at start
++#endif
++
+diff --git a/src/core/main.cpp b/src/core/main.cpp
+index 74b896c..1b551c5 100644
+--- a/src/core/main.cpp
++++ b/src/core/main.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "fpvhooks.h"
+ #include <time.h>
+ #include "rpmatfx.h"
+ #include "rphanim.h"
+@@ -81,7 +82,7 @@
+ 
+ GlobalScene Scene;
+ 
+-uint8 work_buff[55000];
++uint8 work_buff[WORK_BUFF_SIZE];
+ char gString[256];
+ char gString2[512];
+ wchar gUString[256];
+@@ -1344,6 +1345,7 @@ if(gbRenderFadingInEntities)
+ void
+ RenderScene(void)
+ {
++	FPV_HOOK(RenderScene, void(*)(void))
+ #ifdef NEW_RENDERER
+ 	if(gbNewRenderer){
+ 		RenderScene_new();
+@@ -1387,6 +1389,7 @@ RenderDebugShit(void)
+ void
+ RenderEffects(void)
+ {
++	FPV_HOOK(RenderEffects, void(*)(void))
+ #ifdef NEW_RENDERER
+ 	if(gbNewRenderer){
+ 		RenderEffects_new();
+diff --git a/src/core/main.h b/src/core/main.h
+index 803afb1..74d2e66 100644
+--- a/src/core/main.h
++++ b/src/core/main.h
+@@ -18,7 +18,14 @@ struct GlobalScene
+ };
+ extern GlobalScene Scene;
+ 
+-extern uint8 work_buff[55000];
++#ifdef __EMSCRIPTEN__
++// Room for bigger collision models than the original game's (modded data
++// had a 62 KB one that overran the buffer into the globals after it).
++#define WORK_BUFF_SIZE (512 * 1024)
++#else
++#define WORK_BUFF_SIZE 55000
++#endif
++extern uint8 work_buff[WORK_BUFF_SIZE];
+ extern char gString[256];
+ extern char gString2[512];
+ extern wchar gUString[256];
+diff --git a/src/core/re3.cpp b/src/core/re3.cpp
+index e222046..41ed9cc 100644
+--- a/src/core/re3.cpp
++++ b/src/core/re3.cpp
+@@ -45,7 +45,7 @@
+ #include "MBlur.h"
+ #include "ControllerConfig.h"
+ 
+-#ifdef DETECT_JOYSTICK_MENU
++#if defined(DETECT_JOYSTICK_MENU) || defined(__EMSCRIPTEN__)
+ #include "crossplatform.h"
+ #endif
+ 
+diff --git a/src/core/templates.h b/src/core/templates.h
+index 7bc85ee..c35a487 100644
+--- a/src/core/templates.h
++++ b/src/core/templates.h
+@@ -94,8 +94,12 @@ public:
+ #ifdef FIX_BUGS
+ 			if (++m_allocPtr >= m_size) {
+ 				m_allocPtr = 0;
+-				if (wrapped)
++				if (wrapped) {
++#ifdef __EMSCRIPTEN__
++					printf("POOL FULL: %d entries of %d bytes\n", m_size, (int)sizeof(U));
++#endif
+ 					return nil;
++				}
+ 				wrapped = true;
+ 			}
+ #else
+diff --git a/src/extras/fpvhooks.cpp b/src/extras/fpvhooks.cpp
+new file mode 100644
+index 0000000..d92e893
+--- /dev/null
++++ b/src/extras/fpvhooks.cpp
+@@ -0,0 +1,16 @@
++#include "common.h"
++#include "fpvhooks.h"
++
++#ifdef FPV_HOOKS
++void *gFpvHooks[FPVH_COUNT];
++bool gFpvHookBusy[FPVH_COUNT];
++const char *const gFpvHookNames[FPVH_COUNT] = {
++#define FPV_HOOK_NAME(name) #name,
++	FPV_HOOK_LIST(FPV_HOOK_NAME)
++#undef FPV_HOOK_NAME
++};
++int (*gFpvMissionLaunch)(int mission);
++bool (*gFpvCarFire)(void);
++bool (*gFpvSkipVehicleDamage)(CVehicle *vehicle);
++bool (*gFpvSkipHelp)(const char *key);
++#endif
+diff --git a/src/extras/fpvhooks.h b/src/extras/fpvhooks.h
+new file mode 100644
+index 0000000..63aba67
+--- /dev/null
++++ b/src/extras/fpvhooks.h
+@@ -0,0 +1,62 @@
++#pragma once
++
++// Hook points for the FPV drone mod (reVC-mac-fpv) in the web build, where
++// the mod is compiled into the game instead of patching its code at run time.
++//
++// A function with FPV_HOOK at its top calls the mod's replacement while one
++// is set; the replacement runs the original by calling the function again,
++// which the busy flag lets through. The mod fills gFpvHooks by name
++// (web/src/hook_web.cpp). Without FPV_HOOKS (any other build) it all
++// compiles to nothing.
++
++#ifdef FPV_HOOKS
++
++#define FPV_HOOK_LIST(X) \
++	X(CGame_Process) X(CCamera_Process) X(RenderScene) X(CHud_Draw) X(CHud_DrawAfterFade) \
++	X(CMessages_Display) X(CDarkel_DrawMessages) X(CGarages_PrintMessages) X(CPickups_RenderPickUpText) \
++	X(DisplayRadioStationName) X(CColStore_LoadCollision) X(FindPlayerCentreOfWorld) \
++	X(FindPlayerCentreOfWorld_NoSniperShift) X(FindPlayerCoors) X(CClouds_RenderBackground) \
++	X(CClouds_RenderHorizon) X(CRenderer_ScanWorld) X(CRenderer_ScanSectorPoly) X(RenderEffects) \
++	X(CPlayerPed_ProcessControl) X(PedInflictDamage)
++
++enum FpvHookId {
++#define FPV_HOOK_ENUM(name) FPVH_##name,
++	FPV_HOOK_LIST(FPV_HOOK_ENUM)
++#undef FPV_HOOK_ENUM
++	FPVH_COUNT
++};
++
++extern void *gFpvHooks[FPVH_COUNT];
++extern bool gFpvHookBusy[FPVH_COUNT];
++extern const char *const gFpvHookNames[FPVH_COUNT];
++
++struct FpvHookGuard {
++	int id;
++	FpvHookGuard(int i) : id(i) { gFpvHookBusy[i] = true; }
++	~FpvHookGuard() { gFpvHookBusy[id] = false; }
++};
++
++// type: the replacement's function pointer type; the rest: its arguments.
++#define FPV_HOOK(name, type, ...) \
++	if (gFpvHooks[FPVH_##name] && !gFpvHookBusy[FPVH_##name]) { \
++		FpvHookGuard fpvGuard_(FPVH_##name); \
++		return ((type)gFpvHooks[FPVH_##name])(__VA_ARGS__); \
++	}
++
++// --- the Demolition Man demo (web/src/mission.cpp) ---------------------------
++class CVehicle;
++// LOAD_AND_LAUNCH_MISSION: the mission to start instead (or the same).
++extern int (*gFpvMissionLaunch)(int mission);
++// IS_IN_CAR_FIRE_BUTTON_PRESSED: true also when this says so (the drone's
++// "drop the bomb" key or switch).
++extern bool (*gFpvCarFire)(void);
++// CAutomobile::VehicleDamage: true skips the collision damage (the RC
++// helicopter flown by the drone takes the drone's crashes instead).
++extern bool (*gFpvSkipVehicleDamage)(CVehicle *vehicle);
++// PRINT_HELP: true skips the help text with this key (help about controls
++// the drone doesn't have).
++extern bool (*gFpvSkipHelp)(const char *key);
++
++#else
++#define FPV_HOOK(name, type, ...)
++#endif
+diff --git a/src/peds/PedFight.cpp b/src/peds/PedFight.cpp
+index 8e377c8..8e0f98b 100644
+--- a/src/peds/PedFight.cpp
++++ b/src/peds/PedFight.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "fpvhooks.h"
+ 
+ #include "main.h"
+ #include "RpAnimBlend.h"
+@@ -2626,6 +2627,7 @@ CPed::ClearInvestigateEvent(void)
+ bool
+ CPed::InflictDamage(CEntity *damagedBy, eWeaponType method, float damage, ePedPieceTypes pedPiece, uint8 direction)
+ {
++	FPV_HOOK(PedInflictDamage, bool(*)(void*, CEntity*, eWeaponType, float, ePedPieceTypes, uint8), this, damagedBy, method, damage, pedPiece, direction)
+ 	CPlayerPed *player = FindPlayerPed();
+ 	float dieDelta = 4.0f;
+ 	float dieSpeed = 0.0f;
+diff --git a/src/peds/PlayerPed.cpp b/src/peds/PlayerPed.cpp
+index 9f75b15..f48b453 100644
+--- a/src/peds/PlayerPed.cpp
++++ b/src/peds/PlayerPed.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "fpvhooks.h"
+ 
+ #include "RwHelper.h"
+ #include "PlayerPed.h"
+@@ -1612,6 +1613,7 @@ CPlayerPed::FindNewAttackPoints(void)
+ void
+ CPlayerPed::ProcessControl(void)
+ {
++	FPV_HOOK(CPlayerPed_ProcessControl, void(*)(void*), this)
+ 	// Mobile has some debug/abandoned cheat thing in here: "gbFrankenTommy"
+ 
+ 	if (m_nEvadeAmount != 0)
+diff --git a/src/render/Clouds.cpp b/src/render/Clouds.cpp
+index 9cd32c5..9ba3060 100644
+--- a/src/render/Clouds.cpp
++++ b/src/render/Clouds.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "fpvhooks.h"
+ 
+ #include "main.h"
+ #include "Sprite.h"
+@@ -318,6 +319,7 @@ void
+ CClouds::RenderBackground(int16 topred, int16 topgreen, int16 topblue,
+ 	int16 botred, int16 botgreen, int16 botblue, int16 alpha)
+ {
++	FPV_HOOK(CClouds_RenderBackground, void(*)(int16, int16, int16, int16, int16, int16, int16), topred, topgreen, topblue, botred, botgreen, botblue, alpha)
+ 	PUSH_RENDERGROUP("CClouds::RenderBackground");
+ 
+ 	CVector right = CrossProduct(TheCamera.GetUp(), TheCamera.GetForward());
+@@ -429,6 +431,7 @@ CClouds::RenderBackground(int16 topred, int16 topgreen, int16 topblue,
+ void
+ CClouds::RenderHorizon(void)
+ {
++	FPV_HOOK(CClouds_RenderHorizon, void(*)(void))
+ 	if(UseDarkBackground())
+ 		return;
+ 
+diff --git a/src/render/Hud.cpp b/src/render/Hud.cpp
+index 33f3335..bddecae 100644
+--- a/src/render/Hud.cpp
++++ b/src/render/Hud.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "fpvhooks.h"
+ 
+ #include "Camera.h"
+ #include "DMAudio.h"
+@@ -212,6 +213,7 @@ RwTexture *gpViewFinderTex;
+ 
+ void CHud::Draw()
+ {
++	FPV_HOOK(CHud_Draw, void(*)(void))
+ 	RwRenderStateSet(rwRENDERSTATETEXTUREFILTER, (void*)rwFILTERNEAREST);
+ 	RwRenderStateSet(rwRENDERSTATETEXTUREADDRESS, (void*)rwTEXTUREADDRESSCLAMP);
+ 	RwRenderStateSet(rwRENDERSTATEVERTEXALPHAENABLE, (void*)FALSE);
+@@ -1427,6 +1429,7 @@ void CHud::Draw()
+ 
+ void CHud::DrawAfterFade()
+ {
++	FPV_HOOK(CHud_DrawAfterFade, void(*)(void))
+ 	RwRenderStateSet(rwRENDERSTATETEXTUREFILTER, (void*)rwFILTERNEAREST);
+ 	RwRenderStateSet(rwRENDERSTATETEXTUREADDRESS, (void*)rwTEXTUREADDRESSCLAMP);
+ 	RwRenderStateSet(rwRENDERSTATEVERTEXALPHAENABLE, (void*)FALSE);
+diff --git a/src/render/Renderer.cpp b/src/render/Renderer.cpp
+index 6b306b6..e813908 100644
+--- a/src/render/Renderer.cpp
++++ b/src/render/Renderer.cpp
+@@ -1,5 +1,6 @@
+ #define WITHD3D
+ #include "common.h"
++#include "fpvhooks.h"
+ 
+ #include "main.h"
+ #include "Lights.h"
+@@ -996,6 +997,7 @@ enum Corners
+ void
+ CRenderer::ScanWorld(void)
+ {
++	FPV_HOOK(CRenderer_ScanWorld, void(*)(void))
+ 	float f = RwCameraGetFarClipPlane(TheCamera.m_pRwCamera);
+ 	RwV2d vw = *RwCameraGetViewWindow(TheCamera.m_pRwCamera);
+ 	CVector vectors[9];
+@@ -1279,6 +1281,7 @@ CalcNewDelta(RwV2d *a, RwV2d *b)
+ void
+ CRenderer::ScanSectorPoly(RwV2d *poly, int32 numVertices, void (*scanfunc)(CPtrList *))
+ {
++	FPV_HOOK(CRenderer_ScanSectorPoly, void(*)(RwV2d *, int32, void (*)(CPtrList *)), poly, numVertices, scanfunc)
+ 	float miny, maxy;
+ 	int y, yend;
+ 	int x, xstart, xend;
+@@ -1436,6 +1439,9 @@ CRenderer::InsertEntityIntoList(CEntity *ent)
+ 	else if(gbNewRenderer && ent->IsBuilding())
+ 		ms_aVisibleBuildingPtrs[ms_nNoOfVisibleBuildings++] = ent;
+ 	else
++#endif
++#ifdef __EMSCRIPTEN__
++	if(ms_nNoOfVisibleEntities < NUMVISIBLEENTITIES)
+ #endif
+ 		ms_aVisibleEntityPtrs[ms_nNoOfVisibleEntities++] = ent;
+ }
+diff --git a/src/render/Timecycle.h b/src/render/Timecycle.h
+index da911b7..92c26a9 100644
+--- a/src/render/Timecycle.h
++++ b/src/render/Timecycle.h
+@@ -2,6 +2,9 @@
+ 
+ class CTimeCycle
+ {
++#ifdef FPV_HOOKS
++public: // the FPV mod reads the current values (web build)
++#endif
+ 	static uint8 m_nAmbientRed[NUMHOURS][NUMWEATHERS];
+ 	static uint8 m_nAmbientGreen[NUMHOURS][NUMWEATHERS];
+ 	static uint8 m_nAmbientBlue[NUMHOURS][NUMWEATHERS];
+diff --git a/src/skel/glfw/glfw.cpp b/src/skel/glfw/glfw.cpp
+index f5195b8..b174afe 100644
+--- a/src/skel/glfw/glfw.cpp
++++ b/src/skel/glfw/glfw.cpp
+@@ -49,9 +49,13 @@ long _dwOperatingSystemVersion;
+ #include "AnimViewer.h"
+ #include "Font.h"
+ #include "MemoryMgr.h"
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#include <emscripten/html5.h>
++#endif
+ 
+ // We found out that GLFW's keyboard input handling is still pretty delayed/not stable, so now we fetch input from X11 directly on Linux.
+-#if !defined _WIN32 && !defined __APPLE__ && !defined __SWITCH__ // && !defined WAYLAND
++#if !defined _WIN32 && !defined __APPLE__ && !defined __SWITCH__ && !defined __EMSCRIPTEN__ // && !defined WAYLAND
+ #define GET_KEYBOARD_INPUT_FROM_X11
+ #endif
+ 
+@@ -260,7 +264,7 @@ double
+ psTimer(void)
+ {
+ 	struct timespec start; 
+-#if defined(CLOCK_MONOTONIC_RAW)
++#if defined(CLOCK_MONOTONIC_RAW) && !defined(__EMSCRIPTEN__) // the browser has only CLOCK_MONOTONIC
+ 	clock_gettime(CLOCK_MONOTONIC_RAW, &start);
+ #elif defined(CLOCK_MONOTONIC_FAST)
+ 	clock_gettime(CLOCK_MONOTONIC_FAST, &start);
+@@ -481,7 +485,9 @@ psInitialize(void)
+ 	debug("Physical memory size %llu\n", _dwMemAvailPhys);
+ 	debug("Available physical memory %llu\n", size);
+ #else
+-#ifndef __APPLE__
++#if defined(__EMSCRIPTEN__)
++	_dwMemAvailPhys = 512u << 20;
++#elif !defined(__APPLE__)
+  	struct sysinfo systemInfo;
+ 	sysinfo(&systemInfo);
+ 	_dwMemAvailPhys = systemInfo.freeram;
+@@ -753,6 +759,26 @@ psSelectDevice()
+ 			}
+ 		}
+ 	}
++#elif defined(__EMSCRIPTEN__)
++	// The page's canvas is the window: windowed, at its size in device pixels.
++	{
++		double cssW = 0, cssH = 0;
++		emscripten_get_element_css_size("#canvas", &cssW, &cssH);
++		double ratio = emscripten_get_device_pixel_ratio();
++		FrontEndMenuManager.m_nPrefsWidth = cssW > 0 ? (int)(cssW * ratio) : 1280;
++		FrontEndMenuManager.m_nPrefsHeight = cssH > 0 ? (int)(cssH * ratio) : 720;
++		FrontEndMenuManager.m_nPrefsDepth = 32;
++		FrontEndMenuManager.m_nPrefsWindowed = 1;
++		FrontEndMenuManager.m_nSelectedScreenMode = 1;
++		GcurSelVM = 0;
++		bestWndMode = 0;
++		FrontEndMenuManager.m_nDisplayVideoMode = 0;
++		FrontEndMenuManager.m_nPrefsVideoMode = 0;
++	}
++	vm.width = FrontEndMenuManager.m_nPrefsWidth;
++	vm.height = FrontEndMenuManager.m_nPrefsHeight;
++	vm.depth = 32;
++	vm.flags = 0;
+ #else
+ 	if ( !useDefault )
+ 	{
+@@ -803,7 +829,9 @@ psSelectDevice()
+ 	}
+ #endif
+ 
++#ifndef __EMSCRIPTEN__
+ 	RwEngineGetVideoModeInfo(&vm, GcurSelVM);
++#endif
+ 
+ #ifdef IMPROVED_VIDEOMODE
+ 	if (FrontEndMenuManager.m_nPrefsWindowed)
+@@ -1790,6 +1818,278 @@ windowIconifyCB(GLFWwindow* window, int iconified) {
+ /*
+  *****************************************************************************
+  */
++static void
++GameStateStep(void)
++{
++#ifndef MASTER
++	if (gbModelViewer) {
++		// This is TheModelViewerCore in LCS
++		TheModelViewer();
++	} else
++#endif
++	if ( ForegroundApp )
++	{
++		switch ( gGameState )
++		{
++			case GS_START_UP:
++			{
++#ifdef NO_MOVIES
++				gGameState = GS_INIT_ONCE;
++#else
++				gGameState = GS_INIT_LOGO_MPEG;
++#endif
++				TRACE("gGameState = GS_INIT_ONCE");
++				break;
++			}
++
++		    case GS_INIT_LOGO_MPEG:
++			{
++			    //if (!startupDeactivate)
++				//    PlayMovieInWindow(cmdShow, "movies\\Logo.mpg");
++			    gGameState = GS_LOGO_MPEG;
++			    TRACE("gGameState = GS_LOGO_MPEG;");
++			    break;
++		    }
++
++		    case GS_LOGO_MPEG:
++			{
++//					    CPad::UpdatePads();
++
++//					    if (startupDeactivate || ControlsManager.GetJoyButtonJustDown() != 0)
++				    ++gGameState;
++//					    else if (CPad::GetPad(0)->GetLeftMouseJustDown())
++//						    ++gGameState;
++//					    else if (CPad::GetPad(0)->GetEnterJustDown())
++//						    ++gGameState;
++//					    else if (CPad::GetPad(0)->GetCharJustDown(' '))
++//						    ++gGameState;
++//					    else if (CPad::GetPad(0)->GetAltJustDown())
++//						    ++gGameState;
++//					    else if (CPad::GetPad(0)->GetTabJustDown())
++//						    ++gGameState;
++
++			    break;
++		    }
++
++		    case GS_INIT_INTRO_MPEG:
++			{
++//#ifndef NO_MOVIES
++//					    CloseClip();
++//					    CoUninitialize();
++//#endif
++//
++//					    if (CMenuManager::OS_Language == LANG_FRENCH || CMenuManager::OS_Language == LANG_GERMAN)
++//						    PlayMovieInWindow(cmdShow, "movies\\GTAtitlesGER.mpg");
++//					    else
++//						    PlayMovieInWindow(cmdShow, "movies\\GTAtitles.mpg");
++
++			    gGameState = GS_INTRO_MPEG;
++			    TRACE("gGameState = GS_INTRO_MPEG;");
++			    break;
++		    }
++
++		    case GS_INTRO_MPEG:
++			{
++//					    CPad::UpdatePads();
++//
++//					    if (startupDeactivate || ControlsManager.GetJoyButtonJustDown() != 0)
++				    ++gGameState;
++//					    else if (CPad::GetPad(0)->GetLeftMouseJustDown())
++//						    ++gGameState;
++//					    else if (CPad::GetPad(0)->GetEnterJustDown())
++//						    ++gGameState;
++//					    else if (CPad::GetPad(0)->GetCharJustDown(' '))
++//						    ++gGameState;
++//					    else if (CPad::GetPad(0)->GetAltJustDown())
++//						    ++gGameState;
++//					    else if (CPad::GetPad(0)->GetTabJustDown())
++//						    ++gGameState;
++
++			    break;
++		    }
++
++			case GS_INIT_ONCE:
++			{
++				//CoUninitialize();
++				
++#ifdef PS2_MENU
++				extern char version_name[64];
++				if ( CGame::frenchGame || CGame::germanGame )
++					LoadingScreen(NULL, version_name, "loadsc24");
++				else
++					LoadingScreen(NULL, version_name, "loadsc0");
++				
++				printf("Into TheGame!!!\n");
++#else				
++				LoadingScreen(nil, nil, "loadsc0");
++				// LoadingScreen(nil, nil, "loadsc0"); // duplicate
++#endif
++				if ( !CGame::InitialiseOnceAfterRW() )
++					RsGlobal.quit = TRUE;
++				
++#if defined(PS2_MENU) || defined(__EMSCRIPTEN__)
++				gGameState = GS_INIT_PLAYING_GAME;
++#else
++				gGameState = GS_INIT_FRONTEND;
++				TRACE("gGameState = GS_INIT_FRONTEND;");
++#endif
++				break;
++			}
++#ifndef PS2_MENU
++			case GS_INIT_FRONTEND:
++			{
++				LoadingScreen(nil, nil, "loadsc0");
++				// LoadingScreen(nil, nil, "loadsc0"); // duplicate
++				
++				FrontEndMenuManager.m_bGameNotLoaded = true;
++				
++				FrontEndMenuManager.m_bStartUpFrontEndRequested = true;
++				
++				if ( defaultFullscreenRes )
++				{
++					defaultFullscreenRes = FALSE;
++					FrontEndMenuManager.m_nPrefsVideoMode = GcurSelVM;
++					FrontEndMenuManager.m_nDisplayVideoMode = GcurSelVM;
++				}
++				
++				gGameState = GS_FRONTEND;
++				TRACE("gGameState = GS_FRONTEND;");
++				break;
++			}
++			
++			case GS_FRONTEND:
++			{
++				if(!WindowIconified)
++					RsEventHandler(rsFRONTENDIDLE, nil);
++
++#ifdef PS2_MENU
++				if ( !FrontEndMenuManager.m_bMenuActive || TheMemoryCard.m_bWantToLoad )
++#else
++				if ( !FrontEndMenuManager.m_bMenuActive || FrontEndMenuManager.m_bWantToLoad )
++#endif
++				{
++					gGameState = GS_INIT_PLAYING_GAME;
++					TRACE("gGameState = GS_INIT_PLAYING_GAME;");
++				}
++
++#ifdef PS2_MENU
++				if (TheMemoryCard.m_bWantToLoad )
++#else
++				if ( FrontEndMenuManager.m_bWantToLoad )
++#endif
++				{
++					InitialiseGame();
++					FrontEndMenuManager.m_bGameNotLoaded = false;
++					gGameState = GS_PLAYING_GAME;
++					TRACE("gGameState = GS_PLAYING_GAME;");
++				}
++				break;
++			}
++#endif
++			
++			case GS_INIT_PLAYING_GAME:
++			{
++#ifdef PS2_MENU
++				CGame::Initialise("DATA\\GTA3.DAT");
++				
++				//LoadingScreen("Starting Game", NULL, GetRandomSplashScreen());
++			
++				if (   TheMemoryCard.CheckCardInserted(CARD_ONE) == CMemoryCard::NO_ERR_SUCCESS
++					&& TheMemoryCard.ChangeDirectory(CARD_ONE, TheMemoryCard.Cards[CARD_ONE].dir)
++					&& TheMemoryCard.FindMostRecentFileName(CARD_ONE, TheMemoryCard.MostRecentFile) == true
++					&& TheMemoryCard.CheckDataNotCorrupt(TheMemoryCard.MostRecentFile))
++				{
++					strcpy(TheMemoryCard.LoadFileName, TheMemoryCard.MostRecentFile);
++					TheMemoryCard.b_FoundRecentSavedGameWantToLoad = true;
++			
++					if (CMenuManager::m_PrefsLanguage != TheMemoryCard.GetLanguageToLoad())
++					{
++						CMenuManager::m_PrefsLanguage = TheMemoryCard.GetLanguageToLoad();
++						TheText.Unload();
++						TheText.Load();
++					}
++			
++					CGame::currLevel = (eLevelName)TheMemoryCard.GetLevelToLoad();
++				}
++#else
++				InitialiseGame();
++
++				FrontEndMenuManager.m_bGameNotLoaded = false;
++#endif
++				gGameState = GS_PLAYING_GAME;
++				TRACE("gGameState = GS_PLAYING_GAME;");
++				break;
++			}
++			
++			case GS_PLAYING_GAME:
++			{
++				float ms = (float)CTimer::GetCurrentTimeInCycles() / (float)CTimer::GetCyclesPerMillisecond();
++				if ( RwInitialised )
++				{
++					if (!FrontEndMenuManager.m_PrefsFrameLimiter || (1000.0f / (float)RsGlobal.maxFPS) < ms)
++						RsEventHandler(rsIDLE, (void *)TRUE);
++				}
++				break;
++			}
++		}
++	}
++	else
++	{
++		if ( RwCameraBeginUpdate(Scene.camera) )
++		{
++			RwCameraEndUpdate(Scene.camera);
++			ForegroundApp = TRUE;
++			RsEventHandler(rsACTIVATE, (void *)TRUE);
++		}
++		
++	}
++}
++
++#ifdef __EMSCRIPTEN__
++// The browser runs one frame per call and gets control back in between
++// (emscripten_set_main_loop). The native loop's tail, for a restart or a
++// loaded game, runs here when the frontend asks for one. A web page can't
++// quit: "Quit Game" just keeps the game going.
++static void
++WebFrame(void)
++{
++	if (RsGlobal.quit) {
++		RsGlobal.quit = FALSE;
++		FrontEndMenuManager.m_bWantToRestart = false;
++	}
++	if (!FrontEndMenuManager.m_bWantToRestart) {
++		glfwPollEvents();
++		GameStateStep();
++		return;
++	}
++	RwInitialised = FALSE;
++	FrontEndMenuManager.UnloadTextures();
++	CPad::ResetCheats();
++	CPad::StopPadsShaking();
++	DMAudio.ChangeMusicMode(MUSICMODE_DISABLE);
++	CTimer::Stop();
++	if (FrontEndMenuManager.m_bWantToLoad) {
++		CGame::ShutDownForRestart();
++		CGame::InitialiseWhenRestarting();
++		DMAudio.ChangeMusicMode(MUSICMODE_GAME);
++		LoadSplash(GetLevelSplashScreen(CGame::currLevel));
++		FrontEndMenuManager.m_bWantToLoad = false;
++	} else {
++		if (gGameState == GS_PLAYING_GAME)
++			CGame::ShutDown();
++		CTimer::Stop();
++		gGameState = GS_INIT_PLAYING_GAME;
++	}
++	FrontEndMenuManager.m_bFirstTime = false;
++	FrontEndMenuManager.m_bWantToRestart = false;
++	RwInitialised = TRUE;
++	RwV2d pos;
++	pos.x = RsGlobal.maximumWidth * 0.5f;
++	pos.y = RsGlobal.maximumHeight * 0.5f;
++	RsMouseSetPos(&pos);
++}
++#endif
++
+ #ifdef _WIN32
+ int PASCAL
+ WinMain(HINSTANCE instance,
+@@ -1997,6 +2297,15 @@ main(int argc, char *argv[])
+ 	
+ 	initkeymap();
+ 
++#ifdef __EMSCRIPTEN__
++	RwInitialised = TRUE;
++	pos.x = RsGlobal.maximumWidth * 0.5f;
++	pos.y = RsGlobal.maximumHeight * 0.5f;
++	RsMouseSetPos(&pos);
++	emscripten_set_main_loop(WebFrame, 0, 0);
++	return 0;
++#endif
++
+ 	while ( TRUE )
+ 	{
+ 		RwInitialised = TRUE;
+@@ -2042,228 +2351,7 @@ main(int argc, char *argv[])
+ #ifdef GET_KEYBOARD_INPUT_FROM_X11
+ 			checkKeyPresses();
+ #endif
+-#ifndef MASTER
+-			if (gbModelViewer) {
+-				// This is TheModelViewerCore in LCS
+-				TheModelViewer();
+-			} else
+-#endif
+-			if ( ForegroundApp )
+-			{
+-				switch ( gGameState )
+-				{
+-					case GS_START_UP:
+-					{
+-#ifdef NO_MOVIES
+-						gGameState = GS_INIT_ONCE;
+-#else
+-						gGameState = GS_INIT_LOGO_MPEG;
+-#endif
+-						TRACE("gGameState = GS_INIT_ONCE");
+-						break;
+-					}
+-
+-				    case GS_INIT_LOGO_MPEG:
+-					{
+-					    //if (!startupDeactivate)
+-						//    PlayMovieInWindow(cmdShow, "movies\\Logo.mpg");
+-					    gGameState = GS_LOGO_MPEG;
+-					    TRACE("gGameState = GS_LOGO_MPEG;");
+-					    break;
+-				    }
+-
+-				    case GS_LOGO_MPEG:
+-					{
+-//					    CPad::UpdatePads();
+-
+-//					    if (startupDeactivate || ControlsManager.GetJoyButtonJustDown() != 0)
+-						    ++gGameState;
+-//					    else if (CPad::GetPad(0)->GetLeftMouseJustDown())
+-//						    ++gGameState;
+-//					    else if (CPad::GetPad(0)->GetEnterJustDown())
+-//						    ++gGameState;
+-//					    else if (CPad::GetPad(0)->GetCharJustDown(' '))
+-//						    ++gGameState;
+-//					    else if (CPad::GetPad(0)->GetAltJustDown())
+-//						    ++gGameState;
+-//					    else if (CPad::GetPad(0)->GetTabJustDown())
+-//						    ++gGameState;
+-
+-					    break;
+-				    }
+-
+-				    case GS_INIT_INTRO_MPEG:
+-					{
+-//#ifndef NO_MOVIES
+-//					    CloseClip();
+-//					    CoUninitialize();
+-//#endif
+-//
+-//					    if (CMenuManager::OS_Language == LANG_FRENCH || CMenuManager::OS_Language == LANG_GERMAN)
+-//						    PlayMovieInWindow(cmdShow, "movies\\GTAtitlesGER.mpg");
+-//					    else
+-//						    PlayMovieInWindow(cmdShow, "movies\\GTAtitles.mpg");
+-
+-					    gGameState = GS_INTRO_MPEG;
+-					    TRACE("gGameState = GS_INTRO_MPEG;");
+-					    break;
+-				    }
+-
+-				    case GS_INTRO_MPEG:
+-					{
+-//					    CPad::UpdatePads();
+-//
+-//					    if (startupDeactivate || ControlsManager.GetJoyButtonJustDown() != 0)
+-						    ++gGameState;
+-//					    else if (CPad::GetPad(0)->GetLeftMouseJustDown())
+-//						    ++gGameState;
+-//					    else if (CPad::GetPad(0)->GetEnterJustDown())
+-//						    ++gGameState;
+-//					    else if (CPad::GetPad(0)->GetCharJustDown(' '))
+-//						    ++gGameState;
+-//					    else if (CPad::GetPad(0)->GetAltJustDown())
+-//						    ++gGameState;
+-//					    else if (CPad::GetPad(0)->GetTabJustDown())
+-//						    ++gGameState;
+-
+-					    break;
+-				    }
+-
+-					case GS_INIT_ONCE:
+-					{
+-						//CoUninitialize();
+-						
+-#ifdef PS2_MENU
+-						extern char version_name[64];
+-						if ( CGame::frenchGame || CGame::germanGame )
+-							LoadingScreen(NULL, version_name, "loadsc24");
+-						else
+-							LoadingScreen(NULL, version_name, "loadsc0");
+-						
+-						printf("Into TheGame!!!\n");
+-#else				
+-						LoadingScreen(nil, nil, "loadsc0");
+-						// LoadingScreen(nil, nil, "loadsc0"); // duplicate
+-#endif
+-						if ( !CGame::InitialiseOnceAfterRW() )
+-							RsGlobal.quit = TRUE;
+-						
+-#ifdef PS2_MENU
+-						gGameState = GS_INIT_PLAYING_GAME;
+-#else
+-						gGameState = GS_INIT_FRONTEND;
+-						TRACE("gGameState = GS_INIT_FRONTEND;");
+-#endif
+-						break;
+-					}
+-#ifndef PS2_MENU
+-					case GS_INIT_FRONTEND:
+-					{
+-						LoadingScreen(nil, nil, "loadsc0");
+-						// LoadingScreen(nil, nil, "loadsc0"); // duplicate
+-						
+-						FrontEndMenuManager.m_bGameNotLoaded = true;
+-						
+-						FrontEndMenuManager.m_bStartUpFrontEndRequested = true;
+-						
+-						if ( defaultFullscreenRes )
+-						{
+-							defaultFullscreenRes = FALSE;
+-							FrontEndMenuManager.m_nPrefsVideoMode = GcurSelVM;
+-							FrontEndMenuManager.m_nDisplayVideoMode = GcurSelVM;
+-						}
+-						
+-						gGameState = GS_FRONTEND;
+-						TRACE("gGameState = GS_FRONTEND;");
+-						break;
+-					}
+-					
+-					case GS_FRONTEND:
+-					{
+-						if(!WindowIconified)
+-							RsEventHandler(rsFRONTENDIDLE, nil);
+-
+-#ifdef PS2_MENU
+-						if ( !FrontEndMenuManager.m_bMenuActive || TheMemoryCard.m_bWantToLoad )
+-#else
+-						if ( !FrontEndMenuManager.m_bMenuActive || FrontEndMenuManager.m_bWantToLoad )
+-#endif
+-						{
+-							gGameState = GS_INIT_PLAYING_GAME;
+-							TRACE("gGameState = GS_INIT_PLAYING_GAME;");
+-						}
+-
+-#ifdef PS2_MENU
+-						if (TheMemoryCard.m_bWantToLoad )
+-#else
+-						if ( FrontEndMenuManager.m_bWantToLoad )
+-#endif
+-						{
+-							InitialiseGame();
+-							FrontEndMenuManager.m_bGameNotLoaded = false;
+-							gGameState = GS_PLAYING_GAME;
+-							TRACE("gGameState = GS_PLAYING_GAME;");
+-						}
+-						break;
+-					}
+-#endif
+-					
+-					case GS_INIT_PLAYING_GAME:
+-					{
+-#ifdef PS2_MENU
+-						CGame::Initialise("DATA\\GTA3.DAT");
+-						
+-						//LoadingScreen("Starting Game", NULL, GetRandomSplashScreen());
+-					
+-						if (   TheMemoryCard.CheckCardInserted(CARD_ONE) == CMemoryCard::NO_ERR_SUCCESS
+-							&& TheMemoryCard.ChangeDirectory(CARD_ONE, TheMemoryCard.Cards[CARD_ONE].dir)
+-							&& TheMemoryCard.FindMostRecentFileName(CARD_ONE, TheMemoryCard.MostRecentFile) == true
+-							&& TheMemoryCard.CheckDataNotCorrupt(TheMemoryCard.MostRecentFile))
+-						{
+-							strcpy(TheMemoryCard.LoadFileName, TheMemoryCard.MostRecentFile);
+-							TheMemoryCard.b_FoundRecentSavedGameWantToLoad = true;
+-					
+-							if (CMenuManager::m_PrefsLanguage != TheMemoryCard.GetLanguageToLoad())
+-							{
+-								CMenuManager::m_PrefsLanguage = TheMemoryCard.GetLanguageToLoad();
+-								TheText.Unload();
+-								TheText.Load();
+-							}
+-					
+-							CGame::currLevel = (eLevelName)TheMemoryCard.GetLevelToLoad();
+-						}
+-#else
+-						InitialiseGame();
+-
+-						FrontEndMenuManager.m_bGameNotLoaded = false;
+-#endif
+-						gGameState = GS_PLAYING_GAME;
+-						TRACE("gGameState = GS_PLAYING_GAME;");
+-						break;
+-					}
+-					
+-					case GS_PLAYING_GAME:
+-					{
+-						float ms = (float)CTimer::GetCurrentTimeInCycles() / (float)CTimer::GetCyclesPerMillisecond();
+-						if ( RwInitialised )
+-						{
+-							if (!FrontEndMenuManager.m_PrefsFrameLimiter || (1000.0f / (float)RsGlobal.maxFPS) < ms)
+-								RsEventHandler(rsIDLE, (void *)TRUE);
+-						}
+-						break;
+-					}
+-				}
+-			}
+-			else
+-			{
+-				if ( RwCameraBeginUpdate(Scene.camera) )
+-				{
+-					RwCameraEndUpdate(Scene.camera);
+-					ForegroundApp = TRUE;
+-					RsEventHandler(rsACTIVATE, (void *)TRUE);
+-				}
+-				
+-			}
++			GameStateStep();
+ 		}
+ 
+ 		
+diff --git a/src/text/Messages.cpp b/src/text/Messages.cpp
+index 81339ae..e6fb14c 100644
+--- a/src/text/Messages.cpp
++++ b/src/text/Messages.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "fpvhooks.h"
+ 
+ #include "Messages.h"
+ #include "RwHelper.h"
+@@ -119,6 +120,7 @@ CMessages::Process()
+ void
+ CMessages::Display()
+ {
++	FPV_HOOK(CMessages_Display, void(*)(void))
+ 	wchar outstr[256];
+ 
+ 	DefinedState();
+diff --git a/src/vehicles/Automobile.cpp b/src/vehicles/Automobile.cpp
+index 8a50ddc..b8fcbf8 100644
+--- a/src/vehicles/Automobile.cpp
++++ b/src/vehicles/Automobile.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "fpvhooks.h"
+ #include "main.h"
+ 
+ #include "General.h"
+@@ -4084,6 +4085,11 @@ CAutomobile::VehicleDamage(float impulse, uint16 damagedPiece)
+ 	int i;
+ 	float damageMultiplier = 0.333f;
+ 
++#ifdef FPV_HOOKS
++	if (gFpvSkipVehicleDamage && gFpvSkipVehicleDamage(this))
++		return;
++#endif
++
+ 	if(impulse == 0.0f){
+ 		impulse = m_fDamageImpulse;
+ 		damagedPiece = m_nDamagePieceType;
+diff --git a/src/vehicles/Vehicle.cpp b/src/vehicles/Vehicle.cpp
+index a41e0fa..3a87bfb 100644
+--- a/src/vehicles/Vehicle.cpp
++++ b/src/vehicles/Vehicle.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "fpvhooks.h"
+ #include "main.h"
+ 
+ #include "General.h"
+@@ -643,6 +644,41 @@ CVehicle::DoBladeCollision(CVector pos, CMatrix &matrix, int16 rotorType, float
+ 	return hadCollision;
+ }
+ 
++#ifdef FPV_HOOKS
++bool
++CVehicle::DoDronePropCollision(float radius)
++{
++	CVector pos(0.0f, 0.0f, 0.0f);
++	CVector max(radius, radius, 0.15f);
++	CVector min(-radius, -radius, -0.15f);
++	rotorColModel.boundingBox.Set(min, max);
++	rotorColModel.boundingSphere.Set(radius, pos);
++	rotorColSphere.Set(radius, pos, 0, 0);
++	rotorColModel.spheres = &rotorColSphere;
++	rotorColModel.numSpheres = 1;
++
++	CMatrix &matrix = GetMatrix();
++	CVector at = GetPosition();
++	bool hadCollision = false;
++	int minX = Max(CWorld::GetSectorIndexX(at.x - radius), 0);
++	int minY = Max(CWorld::GetSectorIndexY(at.y - radius), 0);
++	int maxX = Min(CWorld::GetSectorIndexX(at.x + radius), NUMSECTORS_X - 1);
++	int maxY = Min(CWorld::GetSectorIndexY(at.y + radius), NUMSECTORS_Y - 1);
++	CWorld::AdvanceCurrentScanCode();
++	for(int y = minY; y <= maxY; y++)
++		for(int x = minX; x <= maxX; x++){
++			CSector *sector = CWorld::GetSector(x, y);
++			if(BladeColSectorList(sector->m_lists[ENTITYLIST_PEDS], rotorColModel, matrix, ROTOR_TOP, 0.0f))
++				hadCollision = true;
++			if(BladeColSectorList(sector->m_lists[ENTITYLIST_PEDS_OVERLAP], rotorColModel, matrix, ROTOR_TOP, 0.0f))
++				hadCollision = true;
++		}
++	rotorColModel.spheres = nil;
++	rotorColModel.numSpheres = 0;
++	return hadCollision;
++}
++#endif
++
+ bool
+ CVehicle::BladeColSectorList(CPtrList &list, CColModel &rotorColModel, CMatrix &matrix, int16 rotorType, float damageMult)
+ {
+diff --git a/src/vehicles/Vehicle.h b/src/vehicles/Vehicle.h
+index 37b5794..e7ac20e 100644
+--- a/src/vehicles/Vehicle.h
++++ b/src/vehicles/Vehicle.h
+@@ -1,5 +1,7 @@
+ #pragma once
+ 
++#include "fpvhooks.h"
++
+ #include "Physical.h"
+ #include "AutoPilot.h"
+ #include "ModelIndices.h"
+@@ -329,6 +331,12 @@ public:
+ 	void FlyingControl(eFlightModel flightModel);
+ 	bool DoBladeCollision(CVector pos, CMatrix &matrix, int16 rotorType, float radius, float damageMult);
+ 	bool BladeColSectorList(CPtrList &list, CColModel &rotorColModel, CMatrix &matrix, int16 rotorType, float damageMult);
++#ifdef FPV_HOOKS
++	// The FPV drone flying this vehicle (the web build's RC helicopter, kept at
++	// the drone's pose): its props cut the peds they touch, as the RC
++	// helicopter's rotor does. radius: the props' reach from the centre.
++	bool DoDronePropCollision(float radius);
++#endif
+ 
+ 	void ProcessWheel(CVector &wheelFwd, CVector &wheelRight, CVector &wheelContactSpeed, CVector &wheelContactPoint,
+ 		int32 wheelsOnGround, float thrust, float brake, float adhesion, int8 wheelId, float *wheelSpeed, tWheelState *wheelState, uint16 wheelStatus);
+diff --git a/vendor/librw/src/clump.cpp b/vendor/librw/src/clump.cpp
+index f228298..33031e7 100644
+--- a/vendor/librw/src/clump.cpp
++++ b/vendor/librw/src/clump.cpp
+@@ -621,10 +621,11 @@ Atomic::uninstance(void)
+ 	this->geometry->flags &= ~Geometry::NATIVE;
+ }
+ 
+-void
++Atomic*
+ Atomic::defaultRenderCB(Atomic *atomic)
+ {
+ 	atomic->getPipeline()->render(atomic);
++	return atomic;
+ }
+ 
+ // Atomic Rights plugin
+diff --git a/vendor/librw/src/gl/gl3device.cpp b/vendor/librw/src/gl/gl3device.cpp
+index e9ea6f3..b1cb786 100644
+--- a/vendor/librw/src/gl/gl3device.cpp
++++ b/vendor/librw/src/gl/gl3device.cpp
+@@ -15,6 +15,9 @@
+ #include "rwgl3.h"
+ #include "rwgl3shader.h"
+ #include "rwgl3impl.h"
++#ifdef __EMSCRIPTEN__
++#include <emscripten/html5.h>
++#endif
+ 
+ #define PLUGIN_ID 0
+ 
+@@ -100,6 +103,15 @@ const char *shaderDecl310es =
+ "precision highp float;\n"
+ "precision highp int;\n";
+ 
++const char *shaderDecl300es =
++"#version 300 es\n"
++"#define VSIN(index) layout(location = index) in\n"
++"#define VSOUT out\n"
++"#define FSIN in\n"
++"#define FRAGCOLOR(c) (fragColor = c)\n"
++"precision highp float;\n"
++"precision highp int;\n";
++
+ const char *shaderDecl;
+ 
+ // this needs a define in the shaders as well!
+@@ -1623,7 +1635,19 @@ makeVideoModeList(void)
+ 	rwFree(glGlobals.modes);
+ 	glGlobals.modes = rwNewT(DisplayMode, num+1, ID_DRIVER | MEMDUR_EVENT);
+ 
+-	glGlobals.modes[0].mode = *glfwGetVideoMode(glGlobals.monitor);
++	const GLFWvidmode *current = glfwGetVideoMode(glGlobals.monitor);
++	if(current)
++		glGlobals.modes[0].mode = *current;
++	else{
++		// no monitor modes (a browser): the window, 8 bits per channel
++		memset(&glGlobals.modes[0].mode, 0, sizeof(GLFWvidmode));
++		glGlobals.modes[0].mode.width = glGlobals.winWidth;
++		glGlobals.modes[0].mode.height = glGlobals.winHeight;
++		glGlobals.modes[0].mode.redBits = glGlobals.modes[0].mode.greenBits = glGlobals.modes[0].mode.blueBits = 8;
++		glGlobals.modes[0].mode.refreshRate = 60;
++	}
++	if(modes == nil)
++		num = 0;
+ 	glGlobals.modes[0].flags = 0;
+ 	glGlobals.numModes = 1;
+ 
+@@ -1679,10 +1703,14 @@ static struct {
+ 	int gl;
+ 	int major, minor;
+ } profiles[] = {
++#ifdef __EMSCRIPTEN__
++	{ GLFW_OPENGL_ES_API, 3, 0 },	// WebGL 2
++#else
+ 	{ GLFW_OPENGL_API, 3, 3 },
+ 	{ GLFW_OPENGL_API, 2, 1 },
+ 	{ GLFW_OPENGL_ES_API, 3, 1 },
+ 	{ GLFW_OPENGL_ES_API, 2, 0 },
++#endif
+ 	{ 0, 0, 0 },
+ };
+ 
+@@ -1773,12 +1801,23 @@ initOpenGL(void)
+ 	}
+ */
+ 	gl3Caps.dxtSupported = !!GLAD_GL_EXT_texture_compression_s3tc;
++#ifdef __EMSCRIPTEN__
++	// WebGL names its extensions differently: ask the browser for them.
++	{
++		EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx = emscripten_webgl_get_current_context();
++		gl3Caps.dxtSupported = emscripten_webgl_enable_extension(ctx, "WEBGL_compressed_texture_s3tc");
++		if(emscripten_webgl_enable_extension(ctx, "EXT_texture_filter_anisotropic"))
++			GLAD_GL_EXT_texture_filter_anisotropic = 1;
++	}
++#endif
+ 	gl3Caps.astcSupported = !!GLAD_GL_KHR_texture_compression_astc_ldr;
+ 
+ 	glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &gl3Caps.maxAnisotropy);
+ 
+ 	if(gl3Caps.gles){
+-		if(gl3Caps.glversion >= 30)
++		if(gl3Caps.glversion == 30)
++			shaderDecl = shaderDecl300es;
++		else if(gl3Caps.glversion >= 30)
+ 			shaderDecl = shaderDecl310es;
+ 		else
+ 			shaderDecl = shaderDecl100es;
+diff --git a/vendor/librw/src/rwobjects.h b/vendor/librw/src/rwobjects.h
+index 5cd833f..2d709e9 100644
+--- a/vendor/librw/src/rwobjects.h
++++ b/vendor/librw/src/rwobjects.h
+@@ -607,7 +607,9 @@ struct World;
+ struct Atomic
+ {
+ 	PLUGINBASE
+-	typedef void (*RenderCB)(Atomic *atomic);
++	// Returns the atomic, as RenderWare's RpAtomicCallBackRender does: the
++	// game's callbacks have that type, and WebAssembly checks call signatures.
++	typedef Atomic *(*RenderCB)(Atomic *atomic);
+ 	enum { ID = 1 };
+ 	enum {
+ 	// flags
+@@ -661,7 +663,7 @@ struct Atomic
+ 	bool streamWriteClump(Stream *stream, FrameList_ *frmlst);
+ 	uint32 streamGetSize(void);
+ 
+-	static void defaultRenderCB(Atomic *atomic);
++	static Atomic *defaultRenderCB(Atomic *atomic);
+ };
+ 
+ void registerAtomicRightsPlugin(void);

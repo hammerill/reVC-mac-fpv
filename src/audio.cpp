@@ -82,4 +82,6 @@ void stop() {
 
 void set_static(bool on) { g_static = on; }
 
+void pump() {}
+
 }  // namespace audio
