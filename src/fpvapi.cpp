@@ -99,6 +99,23 @@ bool load() {
         Log("libfpv.dylib has ABI %u, this plugin was built for %u", fpv.fpv_abi_version(), LIBFPV_ABI_VERSION);
         return false;
     }
+    // libfpv.h lays fpv_frame out differently with LIBFPV_KAMIKAZE (12 radio
+    // channels instead of 10), and the ABI version is the same for both: a
+    // libfpv of the other kind would fill the frame 8 bytes off from where the
+    // plugin reads it (wind, impacts, the video feed). Refuse it instead
+    // (libfpv docs/INTEGRATION.md "Build the game for the same kind of libfpv").
+    bool lib_kamikaze = dlsym(lib, "fpv_kamikaze_poll_detonation") != nullptr;
+#if defined(LIBFPV_KAMIKAZE)
+    const bool mod_kamikaze = true;
+#else
+    const bool mod_kamikaze = false;
+#endif
+    if (lib_kamikaze != mod_kamikaze) {
+        Log("libfpv.dylib is a %s build but this plugin was built for a %s one: not loaded (build it with "
+            "-DREVC_FPV_KAMIKAZE=%s)",
+            lib_kamikaze ? "kamikaze" : "plain", mod_kamikaze ? "kamikaze" : "plain", lib_kamikaze ? "ON" : "OFF");
+        return false;
+    }
 #define FPV_FN(name) fpv.name = reinterpret_cast<decltype(fpv.name)>(dlsym(lib, #name));
     FPV_KAMIKAZE_FUNCTIONS(FPV_FN)
 #undef FPV_FN

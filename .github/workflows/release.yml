@@ -45,7 +45,7 @@ jobs:
           REVC_FPV_VERSION: build-${{ github.run_number }}  # F8 > About shows it with the commit
         run: |
           cmake -S reVC-fpv -B reVC-fpv/build \
-            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_BUILD_TYPE=Release -DREVC_FPV_KAMIKAZE=OFF \
             -DLIBFPV_DIR="$GITHUB_WORKSPACE/libfpv"
           cmake --build reVC-fpv/build -j"$(sysctl -n hw.ncpu)" --target revc_fpv check_libfpv
 
