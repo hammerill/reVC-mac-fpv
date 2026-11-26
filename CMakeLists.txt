@@ -15,7 +15,17 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 set(LIBFPV_DIR "$ENV{HOME}/Projects/libfpv" CACHE PATH "libfpv source checkout (for its headers)")
-option(REVC_FPV_KAMIKAZE "Local development builds only: libfpv's warhead (needs a libfpv built with it)" OFF)
+# Kamikaze: local development builds only. libfpv.h lays fpv_frame out
+# differently with LIBFPV_KAMIKAZE (12 radio channels instead of 10), so the
+# plugin must be built for the kind of libfpv.dylib it loads (libfpv
+# docs/INTEGRATION.md "Build the game for the same kind of libfpv"); the plugin
+# refuses the other kind (src/fpvapi.cpp). On a kamikaze dev machine
+# (LIBFPV_KAMIKAZE_DEV=1 or true, libfpv CLAUDE.md) it defaults to ON.
+set(_kamikaze_default OFF)
+if("$ENV{LIBFPV_KAMIKAZE_DEV}" STREQUAL "1" OR "$ENV{LIBFPV_KAMIKAZE_DEV}" STREQUAL "true")
+  set(_kamikaze_default ON)
+endif()
+option(REVC_FPV_KAMIKAZE "Local development builds only: libfpv's warhead (needs a libfpv built with it)" ${_kamikaze_default})
 if(NOT EXISTS "${LIBFPV_DIR}/include/libfpv.h")
   message(FATAL_ERROR "libfpv.h not found in ${LIBFPV_DIR}/include. Pass -DLIBFPV_DIR=/path/to/libfpv.")
 endif()
