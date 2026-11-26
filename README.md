@@ -34,8 +34,20 @@ install.
   doors into interiors, and draws the police. He still shows at his spot and
   goes back there when the drone returns or the flight ends.
 - **Motor sound** from libfpv's synthesizer.
-- **Clean view**: the HUD, radar and radio station name are hidden while you
-  fly.
+- **Clean view**: nothing of the game's own UI over the goggles' picture
+  (HUD, radar, radio station name, messages, subtitles, pickup and garage
+  text); the HUD comes back in the F view, where Tommy is on foot.
+- **The video feed**: the goggles' picture as libfpv draws it, with the
+  fisheye, analog noise and breakup as the signal weakens behind buildings,
+  and the camera's own resolution and aspect (F8 > Camera).
+- **Wind**: the weather's wind (stronger in rain and storms), shelter behind
+  buildings, helicopter downwash and explosion blasts.
+- **Damage**: water (the drone sinks in, its props drown), fire, explosions,
+  helicopter rotors and bullets break props. Peds and police shoot at the
+  drone itself.
+- **F: back to Tommy**: the view goes back to Tommy, who walks and drives
+  while the drone stays in the air, flown by your radio; F7 goes back to it.
+  You hear the drone from where Tommy stands.
 - **Sound reactions** in the game's own sounds: a menu click on launch, the
   back sound on recall, a tick on a camera switch, the error buzz when
   something can't be done, and a collision sound on impacts from 3 m/s.
@@ -46,7 +58,8 @@ install.
 
 | Key | Action |
 |---|---|
-| F7 | Launch the drone / return to Tommy |
+| F7 | Launch the drone / end the flight (from the F view: back to the drone) |
+| F | Back to Tommy, the drone left flying in the world |
 | F8 | Settings overlay (radio setup, rates, OSD, camera, fisheye strength) |
 | C | Cycle cameras: FPV, chase, line of sight |
 | R | Respawn the drone at its launch point, repaired |
@@ -81,7 +94,7 @@ loads (`tools/check_libfpv.cpp`).
 |---|---|
 | `install.sh` | Copies the plugin into the app and edits its launcher |
 | `uninstall.sh` | Undoes `install.sh` |
-| `reVC-fpv.dylib` | The plugin |
+| `libfpv-reVC.dylib` | The plugin |
 | `libfpv.dylib` | libfpv, arm64 build |
 | `libfpv.LICENSE.txt` | libfpv's license (GPL-3.0-or-later) |
 
@@ -92,7 +105,8 @@ Settings, radio mappings and Betaflight EEPROMs go in libfpv's shared
 folder, `~/Library/Application Support/libfpv/`, so they follow you to
 other libfpv games (`LIBFPV_DATA_DIR` moves it). The first run copies
 what older versions kept in `Contents/Resources/fpv-data/`. The log is
-`Contents/Resources/reVC-fpv.log`.
+`Contents/Resources/libfpv/libfpv-reVC.log`. (The plugin was `reVC-fpv.dylib`
+before; the installer removes that one.)
 
 ## Building
 
@@ -133,21 +147,34 @@ and re-checked against the game's own instructions at startup.
   calibrated from the RenderWare view window and widened for the fisheye to
   the real aspect; the near plane is pulled in front of the closest
   geometry.
-- **World.** `CWorld::ProcessLineOfSight` for collision; streaming and
-  population follow the drone through `FindPlayerCentreOfWorld` and
-  `CColStore::LoadCollision` (with Tommy's spot kept loaded as well).
-- **Drawing.** The fisheye, noise and static are an OpenGL 3 pass over a
-  copy of the frame; the OSD and overlay use libfpv's
-  `docs/renderers/fpv_render_gl3.h`. The drone model is drawn with the
+- **World.** `CWorld::ProcessLineOfSight` for collision, with the pose of
+  hit cars, peds and objects so a perched quad rides along, rough-ground and
+  car-paint friction, and water left out (the drone goes in, is held back
+  and its props drown); streaming and population follow the drone through
+  `FindPlayerCentreOfWorld` and `CColStore::LoadCollision` (with Tommy's
+  spot kept loaded as well; the other way round in the F view).
+- **Damage.** Water, fires (`gFireManager`), explosions, helicopter rotors,
+  and every instant-hit bullet (`CWeapon::DoBulletImpact`) through the
+  props or the body; peds aiming at Tommy while he stands in are aiming at
+  the drone.
+- **Wind.** `CWeather::Wind` as a sea breeze from the east, helicopters'
+  downwash and explosions' blasts, with libfpv's shelter behind buildings.
+- **Drawing.** The FPV view is libfpv's video feed
+  (`docs/renderers/fpv_video_gl3.h`: fisheye, analog noise, the camera's
+  resolution and aspect, the OSD in the signal) over a copy of the frame;
+  the overlay uses `fpv_render_gl3.h`. The drone model is drawn with the
   engine's Im3D right after `RenderScene`, tinted with the time of day's
   light.
-- **Audio.** A CoreAudio output unit plays `fpv_audio_read`.
+- **Audio.** A CoreAudio output unit plays `fpv_audio_read`. While libfpv
+  hears the drone from the pilot, the game's own sounds are too:
+  `TheCamera`'s matrix is swapped for the pilot's head around
+  `cAudioManager::Service`.
 
 `MODLOG.md` is the development journal.
 
 ## Testing without hands
 
-In `Contents/Resources/fpv-data/`: `autotest.txt` starts a scripted flight
+In `Contents/Resources/libfpv/`: `autotest.txt` starts a scripted flight
 (launch, arm, climb, forward, a screenshot per camera, land) once a game is
 loaded; `shot.txt` saves the next frame to `shots/<time>.ppm`; `keys.txt`
 presses keys (`down enter wait f7`...). Each file is deleted once used.

@@ -46,7 +46,9 @@ target_link_options(glfw_stub PRIVATE -Wl,-compatibility_version,3.0.0 -Wl,-curr
 add_library(revc_fpv SHARED
   src/audio.cpp
   src/autotest.cpp
+  src/damage.cpp
   src/drone.cpp
+  src/ear.cpp
   src/effects.cpp
   src/fpvapi.cpp
   src/hook.cpp
@@ -61,7 +63,18 @@ add_library(revc_fpv SHARED
   src/standin.cpp
   src/vc.cpp
   src/view.cpp
+  src/wind.cpp
   src/world.cpp)
+
+# The mod's version and commit for libfpv's F8 > About tab, regenerated on
+# every build (cmake/build_info.cmake).
+set(REVC_FPV_BUILD_INFO "${CMAKE_BINARY_DIR}/generated/build_info.h")
+add_custom_target(revc_fpv_build_info
+  COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR} -DOUT=${REVC_FPV_BUILD_INFO} -DVERSION=${PROJECT_VERSION}
+          -P ${CMAKE_SOURCE_DIR}/cmake/build_info.cmake
+  BYPRODUCTS ${REVC_FPV_BUILD_INFO}
+  VERBATIM)
+add_dependencies(revc_fpv revc_fpv_build_info)
 if(REVC_FPV_KAMIKAZE)
   target_sources(revc_fpv PRIVATE src/kamikaze.cpp)
   target_compile_definitions(revc_fpv PRIVATE LIBFPV_KAMIKAZE)
@@ -69,6 +82,7 @@ endif()
 
 target_include_directories(revc_fpv PRIVATE
   src
+  "${CMAKE_BINARY_DIR}/generated"
   "${LIBFPV_DIR}/include"
   "${LIBFPV_DIR}/docs/renderers"
   "${glfw_SOURCE_DIR}/include")
@@ -82,7 +96,8 @@ target_link_libraries(revc_fpv PRIVATE glfw_stub
   "-framework OpenGL" "-framework AudioToolbox" "-framework CoreAudio")
 set_target_properties(revc_fpv PROPERTIES
   PREFIX ""
-  OUTPUT_NAME reVC-fpv
+  # Labelled libfpv, as libfpv's integration guide asks (not libfpv.dylib, which is libfpv's own).
+  OUTPUT_NAME libfpv-reVC
   SUFFIX ".dylib"
   MACOSX_RPATH OFF
   BUILD_WITH_INSTALL_NAME_DIR ON

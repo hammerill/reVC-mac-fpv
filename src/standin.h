@@ -33,4 +33,12 @@ vc::CVector home();
 bool coors(vc::CVector *out);
 bool standing_in(vc::CEntity *ped);
 
+// Where the AI aims at Tommy (his spine) while he stands in, which is kept on
+// the drone. False when he doesn't.
+bool aim_point(float out[3]);
+
+// A respawn: the next frames may still show the drone where it was, so the
+// distances aren't looked at until it shows up at `spawn` (or for a few frames).
+void after_respawn(const float spawn[3]);
+
 }  // namespace standin

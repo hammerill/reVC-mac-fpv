@@ -12,8 +12,10 @@
 
 namespace pilot {
 
-// Every drone step while Tommy flies the drone on foot: the pose.
-void hold(vc::CEntity *tommy);
+// Every drone step while Tommy flies the drone on foot: the pose while
+// `posed` (the radio in use, the player wants it, not the pilot view), else
+// his own idle (the pose fades out).
+void hold(vc::CEntity *tommy, bool posed);
 
 // The flight is over: the pose fades out.
 void release();

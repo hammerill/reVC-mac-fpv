@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <string>
 
+#include "build_info.h"
 #include "log.h"
 #include "paths.h"
 
@@ -32,10 +33,10 @@ std::string pick_data_dir() {
     fpv_result r = fpv.fpv_shared_data_dir(shared, sizeof shared);
     if (r != FPV_OK) {
         Log("fpv_shared_data_dir: %s, using the bundle folder", fpv.fpv_result_string(r));
-        return paths::data_dir();
+        return paths::legacy_data_dir();
     }
     std::error_code ec;
-    fs::path old_dir = paths::data_dir();
+    fs::path old_dir = paths::legacy_data_dir();
     if (!fs::exists(shared, ec) && fs::is_directory(old_dir, ec)) {
         fs::create_directories(shared, ec);
         for (const auto &entry : fs::directory_iterator(old_dir, ec)) {
@@ -53,9 +54,21 @@ std::string pick_data_dir() {
 
 bool loaded() { return g_loaded; }
 
+fpv_pilot_config pilot_config() {
+    fpv_pilot_config pc{};
+    pc.struct_size = sizeof pc;
+    if (!g_loaded || fpv.fpv_pilot_get_config(&pc) != FPV_OK) {
+        pc.features = FPV_PILOT_STAND_IN | FPV_PILOT_POSE;
+        pc.stand_in_distance = kStandInDistance;
+        pc.stand_in_return_distance = kStandInReturnDistance;
+    }
+    return pc;
+}
+
 bool kamikaze() {
 #if defined(LIBFPV_KAMIKAZE)
-    return g_loaded && fpv.fpv_kamikaze_poll_detonation && fpv.fpv_kamikaze_get_state && fpv.fpv_kamikaze_get_config;
+    return g_loaded && fpv.fpv_kamikaze_poll_detonation && fpv.fpv_kamikaze_get_state && fpv.fpv_kamikaze_get_config &&
+           fpv.fpv_kamikaze_detonate;
 #else
     return false;
 #endif
@@ -98,11 +111,26 @@ bool load() {
     cfg.coords = {FPV_AXIS_POS_X, FPV_AXIS_POS_Z, FPV_AXIS_POS_Y, 1.0f};
     cfg.log = &on_fpv_log;
     cfg.log_level = FPV_LOG_INFO;
+    // render.cpp draws the video feed with libfpv's fpv_video_gl3.h (the
+    // game's context is OpenGL 3.2+ core): F8 > Camera offers its effects.
+    cfg.flags |= FPV_INIT_VIDEO_FEED;
+    // F8 > About: the mod's build next to libfpv's, for bug reports.
+    cfg.host_name = "GTA Vice City FPV (macOS)";
+    cfg.host_build = REVC_FPV_BUILD;
+    cfg.host_url = "https://github.com/hammerill/reVC-mac-fpv";
     fpv_result r = fpv.fpv_global_init(&cfg);
     if (r != FPV_OK && r != FPV_ERROR_ALREADY_INITIALIZED) {
         Log("fpv_global_init: %s (%s)", fpv.fpv_result_string(r), fpv.fpv_last_error());
         return false;
     }
+    // Tommy: carried along with a far drone (standin.cpp) and posed with a
+    // radio (pilot.cpp). Low distances: Vice City's doors are script triggers
+    // on the player, and he often launches right outside one.
+    fpv.fpv_pilot_set_support(FPV_PILOT_STAND_IN | FPV_PILOT_POSE, kStandInDistance, kStandInReturnDistance);
+    // Rough ground and car paint hold a perched quad better than libfpv's smooth default.
+    fpv_material rough{0.2f, 0.6f, 0}, paint{0.2f, 0.5f, 0};
+    fpv.fpv_material_set(kMaterialRough, &rough);
+    fpv.fpv_material_set(kMaterialVehicle, &paint);
     g_failed = false;
     g_loaded = true;
     Log("libfpv %s initialised%s, data in %s", fpv.fpv_version_string(), kamikaze() ? " (warhead)" : "",

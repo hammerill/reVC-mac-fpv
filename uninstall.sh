@@ -1,5 +1,5 @@
 #!/bin/bash
-# Removes reVC-fpv from the macOS version of GTA Vice City.
+# Removes GTA Vice City FPV (libfpv-reVC) from the macOS version of GTA Vice City.
 #
 #   ./uninstall.sh ["/path/to/GTA Vice City.app"]
 #
@@ -15,13 +15,14 @@ BACKUP="$LAUNCHER.fpv-backup"
 
 [ -d "$APP" ] || { echo "error: \"$APP\" not found." >&2; exit 1; }
 
-for f in reVC-fpv.dylib libfpv.dylib libfpv.LICENSE.txt; do
+for f in libfpv-reVC.dylib reVC-fpv.dylib libfpv.dylib libfpv.LICENSE.txt; do
     if [ -f "$FRAMEWORKS/$f" ]; then
         rm "$FRAMEWORKS/$f"
         echo "Removed $f"
     fi
 done
-rm -f "$APP/Contents/Resources/reVC-fpv.log"
+rm -f "$APP/Contents/Resources/reVC-fpv.log" "$APP/Contents/Resources/libfpv/libfpv-reVC.log"
+rmdir "$APP/Contents/Resources/libfpv" 2>/dev/null || true  # kept if it holds screenshots
 
 # Hammerill Trainer still installed: the launcher keeps loading it.
 if [ -f "$FRAMEWORKS/HammerillTrainerVC.dylib" ]; then
@@ -32,4 +33,4 @@ elif [ -f "$BACKUP" ]; then
     chmod +x "$LAUNCHER"
     echo "Restored the original launcher."
 fi
-echo "reVC-fpv is uninstalled. Settings are still in ~/Library/Application Support/libfpv"
+echo "GTA Vice City FPV is uninstalled. Settings are still in ~/Library/Application Support/libfpv"

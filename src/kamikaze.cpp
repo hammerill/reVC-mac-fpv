@@ -27,7 +27,7 @@ EndingChoice ending_choice() {
     if (fpv.fpv_kamikaze_get_config(&kc) != FPV_OK) return e;
     e.view = kc.ending_view == FPV_KAMIKAZE_VIEW_CUTSCENE ? uint32_t(FPV_KAMIKAZE_VIEW_CUTSCENE)
                                                           : uint32_t(FPV_KAMIKAZE_VIEW_SIGNAL_LOST);
-    e.seconds = kc.ending_duration >= 0 && kc.ending_duration <= 30 ? kc.ending_duration : 3.0f;
+    e.seconds = kc.ending_duration >= 0 && kc.ending_duration <= 30 ? kc.ending_duration : 2.0f;
     e.then = kc.ending_then <= FPV_KAMIKAZE_THEN_NOTHING ? kc.ending_then : uint32_t(FPV_KAMIKAZE_THEN_RESPAWN);
     return e;
 }

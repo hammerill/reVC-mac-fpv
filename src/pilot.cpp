@@ -34,8 +34,12 @@ bool bone(void *hierarchy, const float *matrices, int id, float out[3]) {
 
 }  // namespace
 
-void hold(vc::CEntity *tommy) {
+void hold(vc::CEntity *tommy, bool posed) {
     render_end();  // a frame that never reached RenderEffects
+    if (!posed) {
+        if (g_posed) release();
+        return;
+    }
     void *clump = tommy ? vc::rw_object(tommy) : nullptr;
     if (!clump) return;
     // Partial (upper body) and looped: his idle keeps his legs and head.
@@ -88,6 +92,8 @@ void render_end() {
     vc::set_flag(tommy, vc::kVisible, false);
     vc::set_flag(tommy, vc::kOffscreen, false);
     update_rw(tommy);
+    // His bones are world space: rebuild them at the drone, or the AI aims at home.
+    api.UpdateRpHAnim(tommy);
 }
 
 void draw_radio() {

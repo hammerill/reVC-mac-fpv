@@ -48,7 +48,35 @@ int to_fpv(int key) {
     }
 }
 
+// The keyboard fallback's sticks and switches (libfpv: W/S throttle, A/D yaw,
+// arrows pitch and roll, Enter arms, T turtle, B beeper; kamikaze builds: K
+// bomb arm, X explode). In the pilot view they walk and drive Tommy.
+bool flight_key(int key) {
+    switch (key) {
+        case GLFW_KEY_W: case GLFW_KEY_A: case GLFW_KEY_S: case GLFW_KEY_D: case GLFW_KEY_T: case GLFW_KEY_B:
+        case GLFW_KEY_K: case GLFW_KEY_X: case GLFW_KEY_ENTER: case GLFW_KEY_KP_ENTER: case GLFW_KEY_LEFT:
+        case GLFW_KEY_RIGHT: case GLFW_KEY_UP: case GLFW_KEY_DOWN:
+            return true;
+        default: return false;
+    }
+}
+
+bool g_sent[GLFW_KEY_LAST + 1];  // libfpv was told this key is down
+
+void send(int key, bool down) {
+    if (!fpvapi::loaded() || g_sent[key] == down) return;
+    if (int k = to_fpv(key)) fpv.fpv_input_key(k, down);
+    g_sent[key] = down;
+}
+
 }  // namespace
+
+bool is_down(int key) { return key >= 0 && key <= GLFW_KEY_LAST && g_down[key]; }
+
+void release_flight_keys() {
+    for (int key = 0; key <= GLFW_KEY_LAST; ++key)
+        if (flight_key(key)) send(key, false);
+}
 
 bool overlay_has_input() { return fpvapi::loaded() && fpv.fpv_overlay_wants_input(); }
 
@@ -58,13 +86,18 @@ bool on_key(int key, int action) {
     bool was_overlay = overlay_has_input();
     if (down && !g_down[key]) g_pressed[key] = !was_overlay;
     g_down[key] = down;
-    if (fpvapi::loaded())
-        if (int k = to_fpv(key)) fpv.fpv_input_key(k, down);
+    // In the pilot view the flight keys are Tommy's, unless the overlay types.
+    bool tommys = drone::pilot_view() && flight_key(key) && !was_overlay;
+    if (!down || !tommys) send(key, down);
 
     // Releases always reach the game, so nothing held when the overlay
     // opened (or a flight started) stays stuck.
     if (!down) return true;
     if (was_overlay || overlay_has_input()) return false;
+    // The mod's own keys are never the game's (F is also "get in a car").
+    if (key == GLFW_KEY_F7 || key == GLFW_KEY_F8) return false;
+    // In the pilot view Tommy walks and drives: the game gets the keys.
+    if (drone::pilot_view()) return true;
     // In flight the keyboard flies the drone; the game only gets its pause
     // menu (and everything while that menu is open).
     if (drone::active() && !vc::paused() && key != GLFW_KEY_ESCAPE) return false;
@@ -108,8 +141,7 @@ void on_focus(bool focused) {
     for (int key = 0; key <= GLFW_KEY_LAST; ++key)
         if (g_down[key]) {
             g_down[key] = false;
-            if (fpvapi::loaded())
-                if (int k = to_fpv(key)) fpv.fpv_input_key(k, 0);
+            send(key, false);
         }
 }
 

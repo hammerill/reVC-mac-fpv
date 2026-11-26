@@ -22,6 +22,10 @@ void ignore(vc::CEntity *entity);
 // fpv_raycast_fn. Game thread only (libfpv calls it inside fpv_drone_tick).
 int raycast(void *user, const float origin[3], const float dir[3], float max_distance, fpv_raycast_hit *hit);
 
+// fpv_raycast_ex_fn, the one libfpv gets: also the pose of a hit car, ped or
+// object as drawn this frame, so a quad perched on a car rides along.
+int raycast_ex(void *user, const float origin[3], const float dir[3], float max_distance, fpv_raycast_hit_ex *hit);
+
 // The same probe, also returning the entity that was hit (may be null) and
 // its surface type.
 bool probe(const float origin[3], const float dir[3], float max_distance, fpv_raycast_hit *hit,

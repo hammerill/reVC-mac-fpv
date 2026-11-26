@@ -1,6 +1,6 @@
 // The autotest launches the drone, arms it in angle mode through injected
 // channels, climbs, flies forward, and saves a screenshot from each camera
-// (fpv-data/shots/), logging the drone's state as it goes. Then it lands the
+// (Resources/libfpv/shots/), logging the drone's state as it goes. Then it lands the
 // session (F7) and leaves the game as it was. A file reading "at x y z"
 // first moves Tommy there and gives the city 3 s to stream in.
 #include "autotest.h"

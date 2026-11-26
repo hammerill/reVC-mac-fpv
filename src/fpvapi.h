@@ -16,13 +16,16 @@ namespace fpvapi {
     X(fpv_overlay_mouse_button) X(fpv_overlay_mouse_wheel) X(fpv_overlay_text)                    \
     X(fpv_overlay_render) X(fpv_osd_draw_data) X(fpv_audio_configure) X(fpv_audio_read)           \
     X(fpv_overlay_set_action) X(fpv_overlay_poll_action) X(fpv_gps_set_home)                      \
-    X(fpv_shared_data_dir)
+    X(fpv_shared_data_dir) X(fpv_world_set_raycast_callback_ex) X(fpv_material_set)               \
+    X(fpv_drone_damage_props) X(fpv_drone_set_pilot_position) X(fpv_drone_push) X(fpv_set_view)   \
+    X(fpv_pilot_set_support) X(fpv_pilot_get_config) X(fpv_audio_set_listener)                    \
+    X(fpv_wind_defaults) X(fpv_wind_set) X(fpv_wind_set_sources) X(fpv_wind_add_blast)
 
 #if defined(LIBFPV_KAMIKAZE)
 // Only in libfpv builds with -DLIBFPV_KAMIKAZE=ON; null with any other build.
 #define FPV_KAMIKAZE_FUNCTIONS(X)                                                                 \
     X(fpv_kamikaze_poll_detonation) X(fpv_kamikaze_get_state) X(fpv_kamikaze_get_config)        \
-    X(fpv_kamikaze_set_ending_support)
+    X(fpv_kamikaze_set_ending_support) X(fpv_kamikaze_detonate)
 #else
 #define FPV_KAMIKAZE_FUNCTIONS(X)
 #endif
@@ -42,5 +45,19 @@ bool loaded();
 
 // The loaded libfpv carries a warhead.
 bool kamikaze();
+
+// The stand-in's own distances (metres), before the player changes them in F8 > Fly > Pilot.
+constexpr float kStandInDistance = 6.0f;
+constexpr float kStandInReturnDistance = 3.0f;
+
+// The player's F8 > Fly > Pilot choices (stand-in, pose, distances). Cheap.
+fpv_pilot_config pilot_config();
+
+// Surface materials the world's rays report (world.cpp).
+enum Material : uint8_t {
+    kMaterialSmooth = 0,   // libfpv's default: floors, tiles, wood, metal
+    kMaterialRough = 1,    // asphalt, pavement, grass, gravel, sand
+    kMaterialVehicle = 2,  // a car's paint
+};
 
 }  // namespace fpvapi

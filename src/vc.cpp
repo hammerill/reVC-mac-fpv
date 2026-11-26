@@ -28,6 +28,16 @@ constexpr size_t PhysicalMoveSpeed = 0x84;
 constexpr size_t PhysicalTurnSpeed = 0x90;
 constexpr size_t AnimBlendDelta = 0x2C;
 constexpr size_t AnimFlags = 0x3E;
+constexpr size_t PedIK = 0x2C0;
+constexpr size_t VehicleHandling = 0x160;
+constexpr size_t HandlingFlags = 0xCC;
+constexpr uint32_t HandlingIsHeli = 0x20000;
+constexpr size_t PhysicalMass = 0xD0;
+constexpr size_t AutomobileRotorSpeed = 0x5F0;  // m_aWheelSpeed[1]
+constexpr size_t PoolEntries = 0x0, PoolFlags = 0x8, PoolSize = 0x10;
+constexpr size_t VehicleSize = 0x6F0;  // a vehicle pool entry
+constexpr size_t Fires = 0x8, FireSize = 0x38, FireOngoing = 0x0, FirePos = 0x4, FireEntity = 0x10;
+constexpr size_t ExplosionRadius = 0x10, ExplosionIteration = 0x2C;  // from m_ExplosionType, 0x40 each
 }  // namespace off
 
 struct OffsetCheck {
@@ -60,6 +70,16 @@ constexpr OffsetCheck kChecks[] = {
     {"_ZN21CAnimBlendAssociation11UpdateBlendEf", 0x10, 0x2d450402},  // ldp s2, s1, [x0, #0x28]: blendDelta
     {"_ZN21CAnimBlendAssociation11UpdateBlendEf", 0x30, 0x3940fa68},  // ldrb w8, [x19, #0x3e]: flags
     {"_ZN4CPed16InvestigateEventEv", 0x4c0, 0x528000e2},            // mov w2, #0x7: ANIM_STD_IDLE_CAM
+    {"_ZN7CWeapon14FireInstantHitEP7CEntityP7CVector", 0x540, 0x910b02e0},  // add x0, x23, #0x2c0: m_pedIK
+    {"_ZN11CAutomobile14ProcessControlEv", 0x22b8, 0xf940b268},     // ldr x8, [x19, #0x160]: pHandling
+    {"_ZN11CAutomobile14ProcessControlEv", 0x22bc, 0xb940cd08},     // ldr w8, [x8, #0xcc]: handling Flags
+    {"_ZN11CAutomobile14ProcessControlEv", 0x2eb8, 0xbd40d260},     // ldr s0, [x19, #0xd0]: m_fMass
+    {"_ZN11CAutomobile14ProcessControlEv", 0x3df4, 0xbd45f260},     // ldr s0, [x19, #0x5f0]: m_aWheelSpeed[1]
+    {"_ZN6CPools10GetVehicleEi", 0x28, 0x5280de0a},          // mov w10, #0x6f0: vehicle pool entry size
+    {"_ZN12CFireManager15FindNearestFireE7CVectorPf", 0x4, 0x9100400a},   // add x10, x0, #0x10: m_aFires
+    {"_ZN12CFireManager15FindNearestFireE7CVectorPf", 0x20, 0x9100e14a},  // add x10, x10, #0x38: sizeof(CFire)
+    {"_ZN10CExplosion25GetExplosionActiveCounterEh", 0x10, 0x39c0b500},   // ldrsb w0, [x8, #0x2d]
+    {"_ZN10CExplosion20GetExplosionPositionEh", 0xc, 0x8b081928},         // add x8, x9, x8, lsl #6: 0x40 each
 };
 
 template <typename T>
@@ -99,6 +119,8 @@ bool init(std::string &error) {
     R(CRenderer_ScanSectorPoly, "_ZN9CRenderer14ScanSectorPolyEPN2rw3V2dEiPFvP8CPtrListE");
     R(RenderEffects, "_Z13RenderEffectsv");
     R(CPlayerPed_ProcessControl, "_ZN10CPlayerPed14ProcessControlEv");
+    R(cAudioManager_Service, "_ZN13cAudioManager7ServiceEv");
+    R(CWeapon_DoBulletImpact, "_ZN7CWeapon14DoBulletImpactEP7CEntityS1_P7CVectorS3_P9CColPoint9CVector2D");
 
     R(FindPlayerPed, "_Z13FindPlayerPedv");
     R(FindPlayerVehicle, "_Z17FindPlayerVehiclev");
@@ -138,6 +160,9 @@ bool init(std::string &error) {
     R(RpHAnimIDGetIndex, "_Z17RpHAnimIDGetIndexPN2rw14HAnimHierarchyEi");
     R(RpHAnimHierarchyGetMatrixArray, "_Z30RpHAnimHierarchyGetMatrixArrayPN2rw14HAnimHierarchyE");
     R(RemoveBuildingsNotInArea, "_ZN10CStreaming24RemoveBuildingsNotInAreaEi");
+    R(GetWaterLevel, "_ZN11CWaterLevel13GetWaterLevelEfffPfb");
+    R(GetExplosionPosition, "_ZN10CExplosion20GetExplosionPositionEh");
+    R(GetComponentPosition, "_ZN6CPedIK20GetComponentPositionERN2rw3V3dEj");
 
     R(RwCameraSetNearClipPlane, "_Z24RwCameraSetNearClipPlanePN2rw6CameraEf");
     R(RwCameraGetFarClipPlane, "_Z23RwCameraGetFarClipPlanePKN2rw6CameraE");
@@ -181,7 +206,15 @@ bool init(std::string &error) {
     R(DirectionalRed, "_ZN10CTimeCycle24m_fCurrentDirectionalRedE");
     R(DirectionalGreen, "_ZN10CTimeCycle26m_fCurrentDirectionalGreenE");
     R(DirectionalBlue, "_ZN10CTimeCycle25m_fCurrentDirectionalBlueE");
+    R(Wind, "_ZN8CWeather4WindE");
+    R(FireManager, "gFireManager");
+    R(VehiclePool, "_ZN6CPools15ms_pVehiclePoolE");
+    R(AutomobileVtable, "_ZTV11CAutomobile");
+    R(HeliVtable, "_ZTV5CHeli");
 #undef R
+    // A vptr points two slots into the vtable (offset to top, typeinfo).
+    if (api.AutomobileVtable) api.AutomobileVtable = static_cast<uint8_t *>(api.AutomobileVtable) + 16;
+    if (api.HeliVtable) api.HeliVtable = static_cast<uint8_t *>(api.HeliVtable) + 16;
 
     for (const OffsetCheck &check : kChecks) {
         auto *code = static_cast<const uint8_t *>(dlsym(RTLD_MAIN_ONLY, check.symbol));
@@ -249,6 +282,64 @@ float &ped_health(CEntity *ped) { return field<float>(ped, off::PedHealth); }
 float &ped_rotation(CEntity *ped) { return field<float>(ped, off::PedRotationCur); }
 
 uint16_t &pad_disabled_controls() { return field<uint16_t>(api.Pads, off::PadDisablePlayerControls); }
+
+void *vehicle_at(int index) {
+    void *pool = *api.VehiclePool;
+    if (!pool || index < 0 || index >= field<int32_t>(pool, off::PoolSize)) return nullptr;
+    if (field<uint8_t *>(pool, off::PoolFlags)[index] & 0x80) return nullptr;  // free
+    return field<uint8_t *>(pool, off::PoolEntries) + size_t(index) * off::VehicleSize;
+}
+
+int vehicle_pool_size() {
+    void *pool = *api.VehiclePool;
+    return pool ? field<int32_t>(pool, off::PoolSize) : 0;
+}
+
+bool is_real_heli(CEntity *v) {
+    void *vptr = *reinterpret_cast<void **>(v);
+    if (vptr == api.HeliVtable) return true;
+    if (vptr != api.AutomobileVtable) return false;
+    uint8_t *handling = field<uint8_t *>(v, off::VehicleHandling);
+    return handling && (field<uint32_t>(handling, off::HandlingFlags) & off::HandlingIsHeli);
+}
+
+float heli_rotor_speed(CEntity *v) {
+    if (*reinterpret_cast<void **>(v) == api.HeliVtable) return 0.22f;  // they only exist flying
+    return field<float>(v, off::AutomobileRotorSpeed);
+}
+
+bool heli_is_rc(CEntity *v) {
+    return *reinterpret_cast<void **>(v) != api.HeliVtable && field<float>(v, off::PhysicalMass) <= 150.0f;
+}
+
+float heli_lift_mass(CEntity *v) {
+    if (*reinterpret_cast<void **>(v) == api.HeliVtable) return 4500.0f;  // a police Maverick (handling.cfg POLMAV)
+    if (heli_is_rc(v)) return 3.0f;
+    float m = field<float>(v, off::PhysicalMass);
+    return m > 0 ? (m < 10000.0f ? m : 10000.0f) : 0.0f;  // the Hunter is the heaviest, 10 t
+}
+
+float &mass(CEntity *physical) { return field<float>(physical, off::PhysicalMass); }
+
+bool fire_at(int index, CVector *pos, bool *on_entity) {
+    uint8_t *fire = api.FireManager + off::Fires + size_t(index) * off::FireSize;
+    if (!field<uint8_t>(fire, off::FireOngoing)) return false;
+    *pos = field<CVector>(fire, off::FirePos);
+    *on_entity = field<void *>(fire, off::FireEntity) != nullptr;
+    return true;
+}
+
+Explosion explosion_at(int index) {
+    auto *e = reinterpret_cast<uint8_t *>(api.GetExplosionPosition(uint8_t(index))) - 4;
+    return {field<int32_t>(e, 0), field<CVector>(e, 4), field<float>(e, off::ExplosionRadius),
+            field<uint8_t>(e, off::ExplosionIteration) != 0};
+}
+
+CVector aim_point(CEntity *ped) {
+    CVector p{};
+    api.GetComponentPosition(static_cast<uint8_t *>(static_cast<void *>(ped)) + off::PedIK, p, 1);  // PED_MID
+    return p;
+}
 
 bool paused() { return *api.UserPause || *api.CodePause; }
 

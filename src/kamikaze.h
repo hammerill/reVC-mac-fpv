@@ -11,7 +11,7 @@ namespace kamikaze {
 // What happens after the blast, as the player set it in the overlay.
 struct EndingChoice {
     uint32_t view = FPV_KAMIKAZE_VIEW_SIGNAL_LOST;
-    float seconds = 3.0f;  // 0: no view, the "then" at once
+    float seconds = 2.0f;  // 0: no view, the "then" at once
     uint32_t then = FPV_KAMIKAZE_THEN_RESPAWN;
 };
 EndingChoice ending_choice();

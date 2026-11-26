@@ -1,4 +1,4 @@
-// Entry point of reVC-fpv, an FPV drone for GTA Vice City on macOS (reVC),
+// Entry point of libfpv-reVC (reVC-mac-fpv), an FPV drone for GTA Vice City on macOS (reVC),
 // powered by libfpv.
 //
 // The game's launcher script (Contents/MacOS/reVC) loads this library through
@@ -22,7 +22,10 @@
 #include <vector>
 
 #include "autotest.h"
+#include "build_info.h"
+#include "damage.h"
 #include "drone.h"
+#include "ear.h"
 #include "hook.h"
 #include "input.h"
 #include "log.h"
@@ -71,6 +74,9 @@ struct Original {
     void (*render_effects)();
     void (*process_control)(vc::CEntity *);
     bool (*ped_damage)(vc::CEntity *, vc::CEntity *, int, float, int, uint8_t);
+    void (*audio_service)(void *);
+    void (*bullet_impact)(void *, vc::CEntity *, vc::CEntity *, vc::CVector *, vc::CVector *, vc::CColPoint *, float,
+                          float);
 };
 Original g;
 
@@ -135,13 +141,39 @@ void process_control_hook(vc::CEntity *ped) {
     }
     g.process_control(ped);
 }
+// What hurts him there hurts the drone: its props break instead.
 bool ped_damage_hook(vc::CEntity *ped, vc::CEntity *by, int weapon, float damage, int piece, uint8_t direction) {
     if (standin::standing_in(ped)) {
         static int reported = 0;
-        if (reported++ < 20) Log("standin: Tommy hit at the drone (weapon %d, %.1f damage), ignored", weapon, damage);
+        if (reported++ < 20) Log("standin: Tommy hit at the drone (weapon %d, %.1f damage), onto the props", weapon, damage);
+        damage::stand_in_hit(damage);
         return false;
     }
     return g.ped_damage(ped, by, weapon, damage, piece, direction);
+}
+
+// Every instant-hit bullet and pellet, from the muzzle to where it stopped:
+// the drone isn't in the game's collision, so its props and body are tested
+// here. A bullet stops at what it hit: nothing behind a wall is hit.
+void bullet_impact_hook(void *weapon, vc::CEntity *shooter, vc::CEntity *victim, vc::CVector *source,
+                        vc::CVector *target, vc::CColPoint *point, float ahead_x, float ahead_y) {
+    if (drone::active() && source && target) {
+        vc::CVector to = *target;
+        auto d2 = [&](const vc::CVector &p) {
+            float x = p.x - source->x, y = p.y - source->y, z = p.z - source->z;
+            return x * x + y * y + z * z;
+        };
+        if (victim && point && d2(point->point) < d2(to)) to = point->point;
+        damage::shot(shooter, *source, to);
+    }
+    g.bullet_impact(weapon, shooter, victim, source, target, point, ahead_x, ahead_y);
+}
+
+// The game's sounds, heard from the pilot while libfpv hears the drone from him.
+void audio_service_hook(void *audio_manager) {
+    ear::begin_service();
+    g.audio_service(audio_manager);
+    ear::end_service();
 }
 
 // The HUD, radar, radio station name and pickup text would cover the FPV
@@ -172,9 +204,15 @@ void garage_messages_hook() {
 // second point, as for VC's own RC toys. (EnsureCollisionIsInMemory, right
 // after, loads at FindPlayerCoors: the drone too once he stands in. Before
 // that the drone is within a few metres of him.)
+// In the pilot view (F) the other way round: around Tommy, the drone second.
 void load_collision_hook(const float *pos) {
     vc::CVector d, home;
     if (!drone::drone_position(&d)) return g.load_collision(pos);
+    if (drone::pilot_view()) {
+        float second[2] = {d.x, d.y};
+        api.AddCollisionNeededAtPosn(second);
+        return g.load_collision(pos);
+    }
     if (drone::pilot_position(&home)) {
         float second[2] = {home.x, home.y};
         api.AddCollisionNeededAtPosn(second);
@@ -191,13 +229,14 @@ vc::CVector find_coors_hook() {
     return g.find_coors();
 }
 
-// Peds and traffic are created and removed around the drone.
+// Peds and traffic are created and removed around the drone (around Tommy
+// in the pilot view, where he is the player again).
 const vc::CVector *centre_of_world_hook(int player) {
-    if (drone::drone_position(&g_centre)) return &g_centre;
+    if (drone::flying_view() && drone::drone_position(&g_centre)) return &g_centre;
     return g.centre_of_world(player);
 }
 const vc::CVector *centre_no_sniper_hook() {
-    if (drone::drone_position(&g_centre)) return &g_centre;
+    if (drone::flying_view() && drone::drone_position(&g_centre)) return &g_centre;
     return g.centre_no_sniper();
 }
 
@@ -230,17 +269,20 @@ void install_game_hooks() {
     HOOK(render_effects, RenderEffects, render_effects_hook);
     HOOK(process_control, CPlayerPed_ProcessControl, process_control_hook);
     HOOK(ped_damage, PedInflictDamage, ped_damage_hook);
+    HOOK(audio_service, cAudioManager_Service, audio_service_hook);
+    HOOK(bullet_impact, CWeapon_DoBulletImpact, bullet_impact_hook);
 #undef HOOK
     // The loop and the camera are essential; the rest only hide or stream things.
     // The stand-in needs all of its hooks, or Tommy could fall or get hurt at the drone.
     g_game_ok = g.game_process && g.camera_process;
     standin::set_available(g.find_coors && g.process_control && g.ped_damage && g.scan_world && g.render_effects);
     Log("hooks: loop %d camera %d scene %d hud %d/%d/%d text %d/%d/%d/%d streaming %d/%d/%d/%d sky %d/%d scan %d/%d "
-        "effects %d standin %d/%d",
+        "effects %d standin %d/%d ear %d bullets %d",
         !!g.game_process, !!g.camera_process, !!g.render_scene, !!g.hud_draw, !!g.radio_name, !!g.pickup_text,
         !!g.hud_after_fade, !!g.messages_display, !!g.darkel_messages, !!g.garage_messages, !!g.load_collision,
         !!g.centre_of_world, !!g.centre_no_sniper, !!g.find_coors, !!g.render_background, !!g.render_horizon,
-        !!g.scan_world, !!g.scan_sector_poly, !!g.render_effects, !!g.process_control, !!g.ped_damage);
+        !!g.scan_world, !!g.scan_sector_poly, !!g.render_effects, !!g.process_control, !!g.ped_damage,
+        !!g.audio_service, !!g.bullet_impact);
     if (!g_game_ok) Log("the FPV drone is off");
 }
 
@@ -320,7 +362,7 @@ void on_cursor_enter(GLFWwindow *w, int entered) {
     if (g_enter_cb) g_enter_cb(w, entered);
 }
 
-// Testing without hands: fpv-data/keys.txt lists keys ("down enter wait
+// Testing without hands: Resources/libfpv/keys.txt lists keys ("down enter wait
 // f7 c"), typed into the game window one after another, as if pressed. The
 // file is deleted when it is read.
 void scripted_keys() {
@@ -507,7 +549,7 @@ DYLD_INTERPOSE(Hook_glfwGetJoystickAxes, glfwGetJoystickAxes)
 __attribute__((constructor)) void on_load() {
     // Don't pass the injection on to anything the game launches.
     unsetenv("DYLD_INSERT_LIBRARIES");
-    Log("reVC-fpv %s loaded", REVC_FPV_VERSION);
+    Log("libfpv-reVC %s loaded", REVC_FPV_BUILD);
     // Before main(): the game runs no other thread yet, so patching its code is safe.
     install_game_hooks();
 }

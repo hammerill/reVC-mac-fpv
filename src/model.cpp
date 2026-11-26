@@ -118,7 +118,8 @@ void build(const drone::ModelPose &p) {
         box(mid, along * len, across * 0.009f, U * 0.003f, carbon);  // arm
         box(h + U * 0.012f, R * 0.013f, F * 0.013f, U * 0.01f, motor);
         Vec3 prop = h + U * 0.025f;
-        if (p.rpm[m] > 1000.0f) {
+        if (p.prop_damage[m] >= 1.0f) continue;  // broken off
+        if (p.rpm[m] > 1500.0f) {
             disc(prop, R, F, 0.0635f, 0x50808088);
         } else {  // two blades
             Vec3 a = (R * 0.7071f + F * 0.7071f) * (m & 1 ? 1.f : -1.f), b = R * -0.7071f + F * 0.7071f;

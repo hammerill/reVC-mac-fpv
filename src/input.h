@@ -18,4 +18,11 @@ bool take_press(int key);
 // The overlay has the keyboard and mouse: the game gets nothing.
 bool overlay_has_input();
 
+// The key is held now.
+bool is_down(int key);
+
+// The pilot view begins (F): the keyboard's sticks and switches are Tommy's
+// now, so libfpv sees them released.
+void release_flight_keys();
+
 }  // namespace input

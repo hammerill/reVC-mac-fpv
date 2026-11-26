@@ -2,7 +2,7 @@
 
 Fly an FPV drone through Vice City with your own radio, gamepad or keyboard.
 
-**[Download reVC-fpv.zip](https://github.com/hammerill/reVC-mac-fpv/releases/latest/download/reVC-fpv.zip)**
+**[Download libfpv-reVC.zip](https://github.com/hammerill/reVC-mac-fpv/releases/latest/download/libfpv-reVC.zip)**
 
 ## 1. Have the game
 
@@ -12,11 +12,11 @@ Start it once to check that it runs.
 
 ## 2. Install
 
-1. Open the downloaded `reVC-fpv.zip`. You get a `reVC-fpv` folder.
+1. Open the downloaded `libfpv-reVC.zip`. You get a `libfpv-reVC` folder.
 2. Open **Terminal** and run the installer from that folder:
 
    ```sh
-   cd ~/Downloads/reVC-fpv
+   cd ~/Downloads/libfpv-reVC
    bash install.sh
    ```
 
@@ -32,8 +32,9 @@ Start the game, load a save and press **F7**. Tommy launches the drone.
 
 | Key | Action |
 |---|---|
-| F7 | Launch the drone / return to Tommy |
-| F8 | Settings: radio setup, rates, OSD, camera |
+| F7 | Launch the drone / end the flight (from the F view: back to the drone) |
+| F | Back to Tommy, the drone left flying: walk or drive, F7 goes back to it |
+| F8 | Settings: radio setup, rates, OSD, camera, video feed, wind, pilot |
 | C | Cycle cameras: FPV, chase, line of sight |
 | R | Respawn the drone, repaired |
 | Y | Move Tommy to the drone |
@@ -57,12 +58,13 @@ quad. Keep the motor protocol on PWM and ARM on AUX1.
 
 ## Updating
 
-Download the newest `reVC-fpv.zip` and run its `install.sh` the same way.
-Your settings are kept.
+Download the newest `libfpv-reVC.zip` and run its `install.sh` the same way.
+Your settings are kept. (Versions before the plugin was renamed to
+`libfpv-reVC.dylib` are removed by the installer.)
 
 ## Uninstalling
 
-Run `bash uninstall.sh` from the `reVC-fpv` folder (with the app's path if
+Run `bash uninstall.sh` from the `libfpv-reVC` folder (with the app's path if
 it's not in Applications). Your settings stay in
 `~/Library/Application Support/libfpv`, which other libfpv games share;
 delete it (and `GTA Vice City.app/Contents/Resources/fpv-data`, from older
@@ -70,8 +72,8 @@ versions) to remove everything.
 
 ## Something wrong?
 
-- **F7 does nothing:** look at the log, `reVC-fpv.log` in
-  `GTA Vice City.app/Contents/Resources/` (right-click the app > Show
+- **F7 does nothing:** look at the log, `libfpv-reVC.log` in
+  `GTA Vice City.app/Contents/Resources/libfpv/` (right-click the app > Show
   Package Contents). If there is no log, the plugin wasn't loaded: run
   `install.sh` again. If it says the game build isn't supported, your reVC
   build differs from the one the mod was made for.
@@ -80,4 +82,5 @@ versions) to remove everything.
   log attached.
 - **Anything else:**
   [open an issue](https://github.com/hammerill/reVC-mac-fpv/issues) and
-  attach `reVC-fpv.log`.
+  attach `libfpv-reVC.log`. F8 > About > "Copy build info" copies the
+  versions to paste into it.

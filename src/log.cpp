@@ -24,12 +24,12 @@ void Log(const char *fmt, ...) {
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_opened) {  // a fresh log for every game start
         g_opened = true;
-        g_file = std::fopen((paths::resources_dir() + "/reVC-fpv.log").c_str(), "w");
+        g_file = std::fopen((paths::data_dir() + "/libfpv-reVC.log").c_str(), "w");
     }
     std::time_t now = std::time(nullptr);
     char stamp[16];
     std::strftime(stamp, sizeof stamp, "%H:%M:%S", std::localtime(&now));
-    std::fprintf(stderr, "[reVC-fpv] %s\n", line);
+    std::fprintf(stderr, "[libfpv-reVC] %s\n", line);
     if (g_file) {
         std::fprintf(g_file, "%s %s\n", stamp, line);
         std::fflush(g_file);

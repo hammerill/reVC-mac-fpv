@@ -15,11 +15,17 @@
 #include "log.h"
 #include "paths.h"
 
-// libfpv's renderer, calling libfpv through the runtime-loaded table.
+// libfpv's renderers (docs/renderers): the OSD and overlay, and the video
+// feed (lens, analog noise, the camera's resolution and aspect, the OSD in
+// the signal), calling libfpv through the runtime-loaded table.
 #define fpv_texture_get fpvapi::fpv.fpv_texture_get
+#define fpv_osd_draw_data fpvapi::fpv.fpv_osd_draw_data
 #define FPV_RENDER_GL3_IMPLEMENTATION
 #include "fpv_render_gl3.h"
+#define FPV_VIDEO_GL3_IMPLEMENTATION
+#include "fpv_video_gl3.h"
 #undef fpv_texture_get
+#undef fpv_osd_draw_data
 
 namespace render {
 namespace {
@@ -27,14 +33,16 @@ namespace {
 using fpvapi::fpv;
 
 fpv_gl3 g_ui{};
+fpv_video_gl3 g_video{};
 bool g_ui_ready = false;
 bool g_gl_failed = false;
 float g_aspect = 16.0f / 9.0f;
 std::chrono::steady_clock::time_point g_last;
 double g_time = 0;
 
-// The FPV post-process: Brown-Conrady lens distortion (docs/INTEGRATION.md),
-// analog noise and breakup, and full static when the signal is lost.
+// The goggles' own static, for a lost signal (a kamikaze blast) while the
+// player has the video feed's noise off: with it on, libfpv's feed already is
+// the receiver's snow, drawn by fpv_video_gl3.h.
 const char *kPostVs = R"(#version 330 core
 out vec2 uv;
 void main() { vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); uv = p; gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); })";
@@ -118,7 +126,7 @@ bool init() {
         Log("render: the game's OpenGL context is older than 3.2, nothing will be drawn");
         return false;
     }
-    if (!fpv_gl3_init(&g_ui) || !init_post()) {
+    if (!fpv_gl3_init(&g_ui) || !fpv_video_gl3_init(&g_video) || !init_post()) {
         Log("render: shaders failed to build");
         return false;
     }
@@ -127,7 +135,33 @@ bool init() {
     return true;
 }
 
-// The finished frame, through the lens (or as static) back onto itself.
+// The finished frame into g_post.scene, the video feed's source.
+void copy_scene(int w, int h) {
+    GLint last_active, last_tex;
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &last_active);
+    glActiveTexture(GL_TEXTURE0);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &last_tex);
+    glBindTexture(GL_TEXTURE_2D, g_post.scene);
+    if (g_post.w != w || g_post.h != h) {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        g_post.w = w, g_post.h = h;
+    }
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, w, h);
+    glBindTexture(GL_TEXTURE_2D, GLuint(last_tex));
+    glActiveTexture(GLenum(last_active));
+}
+
+// The FPV view: the goggles' picture of the copied frame, OSD included.
+void video(const fpv_frame &f, int w, int h) {
+    copy_scene(w, h);
+    fpv_video_gl3_draw(&g_video, &g_ui, &f, g_post.scene, w, h, w, h, 1);
+}
+
+// Full static over the frame (a lost signal with the feed's noise off).
 void post(const fpv_frame &f, bool lost, int w, int h) {
     GLint last_program, last_vao, last_active, last_tex, last_viewport[4];
     glGetIntegerv(GL_CURRENT_PROGRAM, &last_program);
@@ -184,8 +218,8 @@ void post(const fpv_frame &f, bool lost, int w, int h) {
     if (was_scissor) glEnable(GL_SCISSOR_TEST);
 }
 
-// fpv-data/shot.txt (created by hand or the autotest) saves the next frame as
-// fpv-data/shots/<time>.ppm and is deleted. Works without screen recording rights.
+// Resources/libfpv/shot.txt (created by hand or the autotest) saves the next frame as
+// Resources/libfpv/shots/<time>.ppm and is deleted. Works without screen recording rights.
 void screenshot(int w, int h) {
     static int counter = 0;
     if (++counter % 15) return;  // a few checks per second are plenty
@@ -236,10 +270,10 @@ void frame(int fb_w, int fb_h, int win_w, int win_h) {
         static fpv_frame snapshot;
         bool lost = false;
         if (drone::osd_frame(&snapshot, &lost)) {
-            post(snapshot, lost, fb_w, fb_h);
-            if (drone::show_osd() || lost)
-                fpv_gl3_render(&g_ui, fpv.fpv_osd_draw_data(&snapshot, float(win_w), float(win_h), FPV_OSD_STYLE_ANALOG),
-                               fb_w, fb_h);
+            if (lost && !(snapshot.video_feed.flags & FPV_VIDEO_FEED_NOISE))
+                post(snapshot, true, fb_w, fb_h);  // libfpv's OSD is blank then
+            else
+                video(snapshot, fb_w, fb_h);
         }
         fpv_gl3_render(&g_ui, fpv.fpv_overlay_render(dt), fb_w, fb_h);
     }
@@ -256,7 +290,7 @@ void frame(int fb_w, int fb_h, int win_w, int win_h) {
 float aspect() { return g_aspect; }
 
 void release() {
-    if (g_ui_ready) fpv_gl3_shutdown(&g_ui);
+    if (g_ui_ready) fpv_gl3_shutdown(&g_ui), fpv_video_gl3_shutdown(&g_video);
     if (g_post.program) glDeleteProgram(g_post.program);
     if (g_post.vao) glDeleteVertexArrays(1, &g_post.vao);
     if (g_post.scene) glDeleteTextures(1, &g_post.scene);

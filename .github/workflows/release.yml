@@ -1,5 +1,5 @@
 # Builds the plugin and the latest libfpv for macOS arm64 and publishes
-# reVC-fpv.zip (install.sh, uninstall.sh, the dylibs, libfpv's license) as a
+# libfpv-reVC.zip (install.sh, uninstall.sh, the dylibs, libfpv's license) as a
 # new GitHub release on every push to main; docs/INSTALL.md becomes the
 # release page, so releases/latest is the link to send players. Run it by
 # hand (Actions > Release > Run workflow) to pick up a new libfpv.
@@ -41,6 +41,8 @@ jobs:
           cmake --build libfpv/build/mac -j"$(sysctl -n hw.ncpu)"
 
       - name: Build the mod
+        env:
+          REVC_FPV_VERSION: build-${{ github.run_number }}  # F8 > About shows it with the commit
         run: |
           cmake -S reVC-fpv -B reVC-fpv/build \
             -DCMAKE_BUILD_TYPE=Release \
@@ -52,16 +54,16 @@ jobs:
 
       - name: Package
         run: |
-          pkg=dist/pkg/reVC-fpv
+          pkg=dist/pkg/libfpv-reVC
           mkdir -p "$pkg"
-          cp reVC-fpv/build/reVC-fpv.dylib reVC-fpv/install.sh reVC-fpv/uninstall.sh "$pkg/"
+          cp reVC-fpv/build/libfpv-reVC.dylib reVC-fpv/install.sh reVC-fpv/uninstall.sh "$pkg/"
           # libfpv.dylib is a symlink chain: ship the real file under the plain name.
           cp -L libfpv/build/mac/libfpv.dylib "$pkg/libfpv.dylib"
           cp libfpv/LICENSE "$pkg/libfpv.LICENSE.txt"
           chmod +x "$pkg/install.sh" "$pkg/uninstall.sh"
           for f in "$pkg"/*.dylib; do echo "$f: $(lipo -archs "$f")"; done
-          (cd dist/pkg && zip -9 -r ../reVC-fpv.zip reVC-fpv)
-          unzip -l dist/reVC-fpv.zip
+          (cd dist/pkg && zip -9 -r ../libfpv-reVC.zip libfpv-reVC)
+          unzip -l dist/libfpv-reVC.zip
 
       - name: Publish the release
         env:
@@ -78,7 +80,7 @@ jobs:
             echo "- libfpv [\`${lib_sha:0:7}\`](https://github.com/hammerill/libfpv/commit/${lib_sha}) (source of \`libfpv.dylib\`, GPL-3.0-or-later)"
           } > dist/notes.md
           tag="build-${GITHUB_RUN_NUMBER}"
-          gh release create "$tag" dist/reVC-fpv.zip \
+          gh release create "$tag" dist/libfpv-reVC.zip \
             --repo "$GITHUB_REPOSITORY" \
             --target "$mod_sha" \
             --title "GTA Vice City FPV (macOS) build ${GITHUB_RUN_NUMBER} ($(date -u +%Y-%m-%d))" \

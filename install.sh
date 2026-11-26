@@ -1,9 +1,9 @@
 #!/bin/bash
-# Installs reVC-fpv into the macOS version of GTA Vice City.
+# Installs GTA Vice City FPV (libfpv-reVC) into the macOS version of GTA Vice City.
 #
 #   ./install.sh ["/path/to/GTA Vice City.app"]
 #
-# Copies reVC-fpv.dylib and libfpv.dylib into the app's Frameworks folder and
+# Copies libfpv-reVC.dylib and libfpv.dylib into the app's Frameworks folder and
 # makes the app's launcher script load the plugin. Run uninstall.sh to undo.
 # The files are taken from next to this script (a release download) or, for
 # developers, from build/ and $LIBFPV_DYLIB.
@@ -23,11 +23,11 @@ find_file() {  # first existing path
         if [ -n "$candidate" ] && [ -f "$candidate" ]; then echo "$candidate"; return; fi
     done
 }
-PLUGIN="$(find_file "$HERE/reVC-fpv.dylib" "$HERE/build/reVC-fpv.dylib")"
+PLUGIN="$(find_file "$HERE/libfpv-reVC.dylib" "$HERE/build/libfpv-reVC.dylib")"
 LIBFPV="$(find_file "${LIBFPV_DYLIB:-}" "$HERE/libfpv.dylib")"
 LICENSE="$(find_file "$HERE/libfpv.LICENSE.txt" "${LIBFPV_LICENSE:-}")"
 
-[ -n "$PLUGIN" ] || fail "reVC-fpv.dylib not found next to this script."
+[ -n "$PLUGIN" ] || fail "libfpv-reVC.dylib not found next to this script."
 [ -n "$LIBFPV" ] || fail "libfpv.dylib not found next to this script (developers: set LIBFPV_DYLIB)."
 [ -d "$APP" ] || fail "\"$APP\" not found. Pass the app's path: ./install.sh \"/path/to/GTA Vice City.app\""
 [ -f "$LAUNCHER" ] || fail "\"$LAUNCHER\" not found. Is this the macOS reVC build of Vice City?"
@@ -49,7 +49,10 @@ install_dylib() {  # source, name in Frameworks
     xattr -d com.apple.quarantine "$FRAMEWORKS/$name" 2>/dev/null || true
     codesign --force --sign - "$FRAMEWORKS/$name" >/dev/null 2>&1 || true
 }
-install_dylib "$PLUGIN" reVC-fpv.dylib
+# Versions before the libfpv labelling were reVC-fpv.dylib, with a log and
+# test folder of their own: the game must not load both.
+rm -f "$FRAMEWORKS/reVC-fpv.dylib" "$APP/Contents/Resources/reVC-fpv.log"
+install_dylib "$PLUGIN" libfpv-reVC.dylib
 install_dylib "$LIBFPV" libfpv.dylib
 if [ -n "$LICENSE" ]; then cp "$LICENSE" "$FRAMEWORKS/libfpv.LICENSE.txt"; fi
 
@@ -67,7 +70,7 @@ cat > "$LAUNCHER" <<EOF
 HERE="\$(cd "\$(dirname "\$0")" && pwd)"
 cd "\$HERE/../Resources/"
 INSERT=""
-for plugin in reVC-fpv.dylib HammerillTrainerVC.dylib; do
+for plugin in libfpv-reVC.dylib HammerillTrainerVC.dylib; do
     if [ -f "\$HERE/../Frameworks/\$plugin" ]; then
         INSERT="\${INSERT:+\$INSERT:}\$HERE/../Frameworks/\$plugin"
     fi

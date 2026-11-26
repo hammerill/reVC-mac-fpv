@@ -150,6 +150,57 @@ Data: Contents/Resources/fpv-data; log Contents/Resources/reVC-fpv.log.
   NOT verified in flight yet (game window needs focus): sky, scan, pose,
   radio placement, stand-in, interiors.
 
+## libfpv 1.1.3 integration update (2026-11-26)
+User request: bring the integration up to libfpv's current docs/INTEGRATION.md.
+- Labelled libfpv: plugin libfpv-reVC.dylib (was reVC-fpv.dylib, removed by
+  install.sh/uninstall.sh), mod folder Contents/Resources/libfpv (log
+  libfpv-reVC.log, autotest/shot/keys triggers, shots/), release zip
+  libfpv-reVC.zip. Launcher MARK string kept so old launchers are recognised.
+- About tab: host_name/host_build/host_url; cmake/build_info.cmake writes
+  REVC_FPV_BUILD (version + commit + dirty) on every build; CI sets
+  REVC_FPV_VERSION=build-<run>.
+- Video feed: FPV_INIT_VIDEO_FEED + docs/renderers/fpv_video_gl3.h over a copy
+  of the back buffer (it draws the OSD too). Old shader kept only for the
+  kamikaze lost-signal static when the feed's noise is off. lens_fov uses
+  picture_aspect with the resolution effect (as gtasa-fpv).
+- F pilot view (gtasa-fpv's design): drone left flying, flight keys go to
+  Tommy and libfpv sees them released, F held -> controls held until release,
+  fpv_set_view everywhere, fpv_audio_set_listener from TheCamera, streaming /
+  population around Tommy (drone collision as 2nd point), HUD back, respawn
+  in front of Tommy after the F view. Pose only with FPV_DRONE_RADIO_ACTIVE
+  and the player's F8 > Fly > Pilot choice; pilot position = feet (z - 1 m).
+- fpv_pilot_set_support(STAND_IN|POSE, 6, 3); standin reads the distances,
+  ends when turned off, ignores stale frames for 30 frames after R.
+  Spine (CPedIK PED_MID, m_pedIK +0x2C0) put on the drone, bones rebuilt
+  after each render swap (pilot.cpp) and after each placement.
+- Ear: TheCamera's matrix swapped for frame.los_camera around
+  cAudioManager::Service while FPV_DRONE_HEARD_FROM_PILOT (cDMAudio::Service
+  is 3 instructions, too short to detour).
+- Wind: CWeather::Wind (Windyness 0.25 sunny .. 2 hurricane) x 11 m/s, floor
+  0.5, direction fixed towards the west (VC's wind has no direction);
+  ENCLOSED when currArea != 0; rotor sources from the vehicle pool (CHeli
+  vtable, or CAutomobile with handling flag 0x20000; rotor = m_aWheelSpeed[1]
+  +0x5F0, full at 0.15; mass +0xD0, <50 kg = RC); blasts from gaExplosion.
+- FIX (user test): helicopter downwash 100x too violent. CHeli (police/news)
+  sets m_fMass = 1e8 so nothing pushes it: ~2 km/s at the disc. Now
+  vc::heli_lift_mass: CHeli 4500 kg (POLMAV), RC (handling mass <= 150 kg,
+  the Goblin says 100) 3 kg, others m_fMass capped at 10 t (Hunter). A
+  hovering Maverick gives ~11 m/s at the disc, as gtasa-fpv.
+- Damage (damage.cpp): water via CWaterLevel::GetWaterLevel (drag k=6 push +
+  1/s per prop, entry/exit logged), SURFACE_WATER (19) hits skipped in the
+  raycast, fires (gFireManager+8, 0x38 each), explosions (0x40 each, radius
+  +0x10, active = m_nIteration +0x2C), heli rotor discs, DoBulletImpact
+  detour (props, body -> kamikaze detonate or all props, shots at Tommy's
+  spine re-aimed onto the drone), InflictDamage on the stand-in -> props
+  (damage/100 on all four).
+- Raycast: fpv_world_set_raycast_callback_ex with FPV_RAYCAST_HIT_POSE for
+  peds/vehicles/objects; materials 1 rough (0.6) / 2 car paint (0.5).
+- No game UI: HUD hidden in drone views, all text hidden in the FPV view.
+- New offsets are all in kChecks (vc.cpp).
+- Not done: flying from a car still uses the light stand-in (queries only);
+  the full "get out, stand in on foot, draw seated" of the guide is not
+  ported. Verified: builds, check_libfpv passes. Not verified in game yet.
+
 ## Shared data folder (2026-10-29)
 - libfpv's data_dir is now fpv_shared_data_dir() (~/Library/Application
   Support/libfpv, LIBFPV_DATA_DIR overrides), so the radio setup and tune

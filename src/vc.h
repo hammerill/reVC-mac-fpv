@@ -89,6 +89,10 @@ struct Api {
     void (*CRenderer_ScanSectorPoly)(RwV2d *poly, int count, void (*scan)(void *list));
     void (*RenderEffects)();
     void (*CPlayerPed_ProcessControl)(CEntity *ped);
+    void (*cAudioManager_Service)(void *audio_manager);
+    // CWeapon::DoBulletImpact(shooter, victim, source, target, colpoint, ahead): every instant-hit bullet
+    void (*CWeapon_DoBulletImpact)(void *weapon, CEntity *shooter, CEntity *victim, CVector *source, CVector *target,
+                                   CColPoint *point, float ahead_x, float ahead_y);
     // PedInflictDamage (below) is detoured too
 
     // game functions the mod calls
@@ -133,6 +137,9 @@ struct Api {
     int (*RpHAnimIDGetIndex)(void *hierarchy, int bone);
     float *(*RpHAnimHierarchyGetMatrixArray)(void *hierarchy);  // RwMatrix[], 16 floats each
     void (*RemoveBuildingsNotInArea)(int area);
+    bool (*GetWaterLevel)(float x, float y, float z, float *level, bool dont_check_z);
+    CVector *(*GetExplosionPosition)(uint8_t id);  // &gaExplosion[id].m_vecPosition
+    void (*GetComponentPosition)(void *ped_ik, CVector &out, uint32_t node);  // CPedIK
 
     // RenderWare (librw through re3's wrappers)
     void (*RwCameraSetNearClipPlane)(void *camera, float near_plane);
@@ -172,6 +179,11 @@ struct Api {
     uint8_t *ReplayMode;
     float *AmbientRed, *AmbientGreen, *AmbientBlue;
     float *DirectionalRed, *DirectionalGreen, *DirectionalBlue;
+    float *Wind;               // CWeather::Wind: 0.25 sunny, 0.7 cloudy, 1 rain, more in storms
+    uint8_t *FireManager;      // gFireManager
+    void **VehiclePool;        // CPools::ms_pVehiclePool
+    void *AutomobileVtable;    // what a CAutomobile's vptr points at
+    void *HeliVtable;          // CHeli (the police and news helicopters)
 };
 extern Api api;
 
@@ -199,6 +211,32 @@ uint16_t &anim_flags(void *association);
 constexpr uint16_t kAnimDeleteFadedOut = 0x4;
 uint16_t &pad_disabled_controls();  // CPad::DisablePlayerControls of pad 0
 constexpr uint16_t kPadDisabledByFpv = 0x8000;  // our bit; scripts use the low ones
+
+// Vehicles
+void *vehicle_at(int index);         // the vehicle pool's slot, null when free
+int vehicle_pool_size();
+bool is_real_heli(CEntity *vehicle);  // a flyable helicopter (CAutomobile with heli handling) or a CHeli
+float heli_rotor_speed(CEntity *vehicle);  // 0..0.22 (0.15 flies); CHeli: 0.22 while it exists
+// A helicopter's weight the rotor carries, kg. Not m_fMass as it is: a
+// CHeli's is 1e8 (so nothing pushes it), and the RC Goblin's handling says
+// 100 kg for a toy of a few kilograms.
+float heli_lift_mass(CEntity *vehicle);
+bool heli_is_rc(CEntity *vehicle);  // the RC Raider and Goblin
+float &mass(CEntity *physical);
+// Fires (gFireManager) and explosions (gaExplosion)
+constexpr int kFireCount = 40, kExplosionCount = 48;
+bool fire_at(int index, CVector *pos, bool *on_entity);  // an ongoing fire
+struct Explosion {
+    int type;
+    CVector pos;
+    float radius;
+    bool active;
+};
+Explosion explosion_at(int index);
+constexpr int kExplosionMolotov = 1;
+// The point the AI aims a gun at on a ped (CPedIK, PED_MID: the spine).
+CVector aim_point(CEntity *ped);
+constexpr uint8_t kSurfaceWater = 19;
 
 bool paused();          // pause menu or code pause
 bool replay_playing();
